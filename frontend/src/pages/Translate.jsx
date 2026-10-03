@@ -34,6 +34,7 @@ function Translate() {
   const isCameraSource = source === 'camera'
   const isUploadSource = source === 'upload'
   const isRunning = isCameraSource || isUploadSource
+  const textSource = isCameraSource ? 'live' : isUploadSource ? 'upload' : null
 
   useFrameProcessor({
     landmarker,
@@ -174,7 +175,7 @@ function Translate() {
           onRemoveUpload={handleRemoveUpload}
         />
 
-        <TextPane />
+        <TextPane source={textSource} />
       </div>
     </main>
   )

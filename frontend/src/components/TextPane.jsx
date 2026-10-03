@@ -1,27 +1,50 @@
 import { useCallback, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { useAuth } from '../context/auth-context'
 import StatusLine from './StatusLine'
+import { saveTranslation } from '../services/translations'
 
-function TextPane() {
+const IDLE_MESSAGE = 'Sign recognition is not connected yet, so no text is produced.'
+
+function TextPane({ source }) {
+  const { user } = useAuth()
   const [text, setText] = useState('')
-  const [copyNotice, setCopyNotice] = useState('')
+  const [notice, setNotice] = useState({ tone: 'idle', text: '' })
+  const [isSaving, setIsSaving] = useState(false)
+
+  const isSignedIn = Boolean(user)
+  const hasText = text.trim().length > 0
+  const hasSource = source === 'live' || source === 'upload'
 
   const handleCopy = useCallback(async () => {
     if (!text) return
     try {
       await navigator.clipboard.writeText(text)
-      setCopyNotice('Text copied to your clipboard.')
+      setNotice({ tone: 'ready', text: 'Text copied to your clipboard.' })
     } catch {
-      setCopyNotice('Copying did not work. Select the text and copy it manually.')
+      setNotice({
+        tone: 'error',
+        text: 'Copying did not work. Select the text and copy it manually.',
+      })
     }
   }, [text])
 
   const handleClear = useCallback(() => {
     setText('')
-    setCopyNotice('')
+    setNotice({ tone: 'idle', text: 'Text cleared.' })
   }, [])
 
-  const hasText = text.trim().length > 0
-  const idleMessage = 'Sign recognition is not connected yet, so no text is produced.'
+  const handleSave = useCallback(async () => {
+    setIsSaving(true)
+    const result = await saveTranslation({ text, source })
+    setIsSaving(false)
+
+    setNotice(
+      result.ok
+        ? { tone: 'ready', text: 'Saved to your history.' }
+        : { tone: 'error', text: result.message }
+    )
+  }, [text, source])
 
   return (
     <section className="pane" aria-labelledby="text-pane-title">
@@ -30,6 +53,16 @@ function TextPane() {
           Text
         </h2>
         <div className="pane-actions">
+          {isSignedIn && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleSave}
+              disabled={!hasText || !hasSource || isSaving}
+            >
+              {isSaving ? 'Saving...' : 'Save to history'}
+            </button>
+          )}
           <button
             type="button"
             className="btn btn-secondary"
@@ -50,19 +83,45 @@ function TextPane() {
       </div>
 
       <div className="text-surface">
-        {hasText ? (
-          <p className="text-output">{text}</p>
-        ) : (
-          <div className="text-empty">
-            <p className="text-empty-title">Nothing translated yet</p>
-            <p className="text-empty-text">
+        <label className="visually-hidden" htmlFor="translation-text">
+          Translation text
+        </label>
+        <textarea
+          id="translation-text"
+          className="text-input"
+          value={text}
+          onChange={(event) => {
+            setText(event.target.value)
+            setNotice({ tone: 'idle', text: '' })
+          }}
+          placeholder="Recognised text will appear here. You can also type or paste text to save it."
+          rows={8}
+          spellCheck="false"
+        />
+        {!hasText && (
+          <p className="text-empty" aria-hidden="true">
+            <span className="text-empty-title">Nothing translated yet</span>
+            <span className="text-empty-text">
               Start your camera or upload a video. Recognised text will appear here.
-            </p>
-          </div>
+            </span>
+          </p>
         )}
       </div>
 
-      <StatusLine tone="idle">{copyNotice || idleMessage}</StatusLine>
+      <StatusLine tone={notice.tone}>
+        {notice.text || (isSignedIn ? IDLE_MESSAGE : `${IDLE_MESSAGE} Sign in to save translations.`)}
+      </StatusLine>
+
+      {!isSignedIn && (
+        <p className="text-hint">
+          You can use the translator without an account.{' '}
+          <Link to="/signin">Sign in</Link> to save translations.
+        </p>
+      )}
+
+      {isSignedIn && !hasSource && (
+        <p className="text-hint">Start the camera or upload a video, then you can save this text.</p>
+      )}
     </section>
   )
 }
