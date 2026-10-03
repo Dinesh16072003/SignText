@@ -14,6 +14,16 @@ Always maintain this structure:
 - `ml/` (Python training)
 - `frontend/` with `src/` containing: `assets/`, `components/`, `context/`, `data/`, `hooks/`, `pages/`, `services/`
 
+## Setup and Commands
+The app lives in `frontend/`. Run every command from that folder.
+
+- Install dependencies: `npm install`
+  - This also copies the MediaPipe runtime into `public/mediapipe/wasm` and downloads the hand landmark model into `public/mediapipe/`. Both are ignored by git.
+- Start the dev server: `npm run dev` (opens on http://localhost:5173)
+- Lint: `npm run lint`
+- Production build: `npm run build`
+- Camera access needs a secure context, so use `localhost` or HTTPS.
+
 ## Rules for This Project
 - Keep the folder structure above. Never rename top-level folders without approval.
 - Never fake model output. Only display real predictions once the model is integrated.

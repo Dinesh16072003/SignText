@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+build/
+
+# Hand tracking runtime and model, restored by npm install
+frontend/public/mediapipe/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Editor and OS files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Python (ml/)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+mlruns/
+mlartifacts/
+
+# Supabase and local database artefacts
+supabase/.temp/
+*.sqlite
+*.sqlite3
+
+# Cached ML data and model artefacts
+ml/data/
+ml/artifacts/
+*.tflite
+*.onnx
