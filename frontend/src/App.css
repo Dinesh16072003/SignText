@@ -211,6 +211,14 @@
   font-weight: 600;
 }
 
+/* Developer readout for the feature extractor, only rendered in development. */
+.video-debug {
+  color: var(--color-text-muted);
+  font-family: ui-monospace, 'Cascadia Mono', 'Consolas', monospace;
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.02em;
+}
+
 /* Text pane */
 .text-surface {
   position: relative;

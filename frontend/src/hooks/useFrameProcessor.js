@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
+import { extractHandFeatures } from '../services/handFeatures'
 
 export const HAND_CONNECTIONS = [
   [0, 1], [1, 2], [2, 3], [3, 4],
@@ -45,6 +46,10 @@ export function drawHand(ctx, hand, width, height, colors) {
  * Runs Hand Landmarker detection on every new video frame and draws the
  * landmarks on a canvas that sits exactly on top of the video. The same code
  * path handles the live camera and an uploaded video file.
+ *
+ * Every frame is also converted into the model's input numbers. Only the
+ * latest frame is kept, so memory use does not grow with the video length.
+ * Nothing is recognized yet.
  */
 export function useFrameProcessor({
   landmarker,
@@ -53,10 +58,13 @@ export function useFrameProcessor({
   layerRef,
   stageRef,
   isRunning,
+  onFrameFeatures,
 }) {
   const animationRef = useRef(null)
   const lastTimeRef = useRef(-1)
   const sizeRef = useRef({ width: 0, height: 0 })
+  const featuresRef = useRef(null)
+  const onFrameFeaturesRef = useRef(onFrameFeatures)
   const metricsRef = useRef({
     videoWidth: 0,
     videoHeight: 0,
@@ -79,6 +87,12 @@ export function useFrameProcessor({
     }
     lastTimeRef.current = -1
   }, [])
+
+  // Reading the callback through a ref keeps the detection effect from
+  // restarting every time the page re-renders with a new callback.
+  useEffect(() => {
+    onFrameFeaturesRef.current = onFrameFeatures
+  }, [onFrameFeatures])
 
   useEffect(() => {
     const video = videoRef.current
@@ -162,6 +176,13 @@ export function useFrameProcessor({
       hands.forEach((hand, index) => {
         drawHand(ctx, hand, width, height, HAND_COLORS[index % HAND_COLORS.length])
       })
+
+      // Only the newest frame is kept. There is no queue and no history.
+      featuresRef.current = extractHandFeatures(results)
+      onFrameFeaturesRef.current?.({
+        handCount: hands.length,
+        features: featuresRef.current,
+      })
     }
 
     const detectFrame = () => {
@@ -211,9 +232,10 @@ export function useFrameProcessor({
       }
       lastTimeRef.current = -1
       sizeRef.current = { width: 0, height: 0 }
+      featuresRef.current = null
       clearCanvas()
     }
   }, [landmarker, videoRef, canvasRef, layerRef, stageRef, isRunning, stop, clearCanvas])
 
-  return { stop, clearCanvas }
+  return { stop, clearCanvas, latestFeatures: featuresRef }
 }

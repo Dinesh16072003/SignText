@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useHandTracker } from '../hooks/useHandTracker'
 import { describeCameraError, useCamera } from '../hooks/useCamera'
 import { useFrameProcessor } from '../hooks/useFrameProcessor'
+import { FEATURE_LENGTH } from '../services/handFeatures'
 import VideoPane from '../components/VideoPane'
 import TextPane from '../components/TextPane'
 
@@ -13,6 +14,8 @@ function Translate() {
   const [source, setSource] = useState(null)
   const [uploadName, setUploadName] = useState('')
   const [uploadError, setUploadError] = useState('')
+  const [detectedHands, setDetectedHands] = useState(0)
+  const detectedHandsRef = useRef(0)
 
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
@@ -36,6 +39,14 @@ function Translate() {
   const isRunning = isCameraSource || isUploadSource
   const textSource = isCameraSource ? 'live' : isUploadSource ? 'upload' : null
 
+  // Runs on every detected frame. React only hears about it when the number of
+  // hands changes, so the page is not re-rendered at video speed.
+  const handleFrameFeatures = useCallback(({ handCount }) => {
+    if (handCount === detectedHandsRef.current) return
+    detectedHandsRef.current = handCount
+    setDetectedHands(handCount)
+  }, [])
+
   useFrameProcessor({
     landmarker,
     videoRef,
@@ -43,6 +54,7 @@ function Translate() {
     layerRef,
     stageRef,
     isRunning: isRunning && isReady,
+    onFrameFeatures: handleFrameFeatures,
   })
 
   const releaseUpload = useCallback(() => {
@@ -146,6 +158,12 @@ function Translate() {
     ? describeCameraError(cameraError)
     : uploadError || trackerError
 
+  // Only visible while developing, so the built app stays clean.
+  const featureDebugLine =
+    import.meta.env.DEV && isRunning
+      ? `hands: ${detectedHands}, features: ${FEATURE_LENGTH}`
+      : ''
+
   return (
     <main className="page">
       <header className="page-header">
@@ -168,6 +186,7 @@ function Translate() {
           uploadName={uploadName}
           statusText={trackerStatus}
           errorText={message}
+          featureDebugLine={featureDebugLine}
           onUseCamera={handleUseCamera}
           onStopCamera={handleStopCamera}
           onUploadClick={handleUploadClick}

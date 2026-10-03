@@ -20,6 +20,7 @@ function VideoPane({
   uploadName,
   statusText,
   errorText,
+  featureDebugLine,
   fileInputRef,
   onUseCamera,
   onStopCamera,
@@ -128,6 +129,12 @@ function VideoPane({
       </p>
 
       <StatusLine tone={tone}>{errorText || statusText}</StatusLine>
+
+      {featureDebugLine && (
+        <p className="video-debug" aria-hidden="true">
+          {featureDebugLine}
+        </p>
+      )}
 
       {isUploadSource && uploadName && (
         <p className="video-file-name">
