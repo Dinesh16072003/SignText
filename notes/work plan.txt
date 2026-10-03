@@ -1,0 +1,17 @@
+Phase 1: app and alphabet (the working demo)
+
+App shell with camera and upload (done)
+Hand tracking (done)
+Supabase login and history (done)
+Feature extraction (just given)
+Prepare the ASL Alphabet dataset
+Train the alphabet model and export it
+Connect the model so letters appear in the text pane
+
+Phase 2: words and sentences
+8. Prepare the word-level dataset (WLASL, starting with about 100 signs)
+9. Train a sequence model on 30-frame windows
+10. Sign segmentation and sentence assembly, so "Hi, how are you?" comes out as a sentence
+
+Phase 3: finishing
+11. Polish: save uploaded videos, text-to-speech, testing with different people and lighting, and deployment
