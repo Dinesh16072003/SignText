@@ -21,6 +21,11 @@ landmark an object with `x`, `y` and `z`:
 `landmarks` may be empty. It may also be shorter than two hands. Other fields
 of the result, including the `handedness` label, are ignored.
 
+The same value has two names depending on the binding. MediaPipe 1.0.1 in
+Python calls it `hand_landmarks`, while the JavaScript build used by the web
+app calls it `landmarks`. It holds the same 21 landmarks either way, and
+`ml/hand_features.py` accepts both.
+
 ## Output
 
 A plain list of exactly `FEATURE_LENGTH = 126` numbers, or `null` when
@@ -132,15 +137,22 @@ output at all.
 
 ## Rules for the training code
 
-1. Read the video with the same `HandLandmarker` settings as the browser:
-   `numHands: 2`, `runningMode: VIDEO`, and the same confidence thresholds
-   the app uses, which are `0.6` for detection, presence and tracking.
-2. Run extraction in the same order the browser does. Identical frames must
+1. Use the same model file as the browser,
+   `frontend/public/mediapipe/hand_landmarker.task`, with `numHands: 2`. Live
+   video uses `runningMode: VIDEO` and stored images use `runningMode: IMAGE`.
+2. The confidence threshold may differ between building a dataset and running
+   in the browser, and the value used must be reported with the dataset.
+   The browser uses `0.6` for detection, presence and tracking. The ASL
+   Alphabet images are only 200 by 200 pixels and many hands sit far from the
+   camera, so `0.6` throws away about one image in five. At `0.1` almost every
+   image with a hand is kept, and frames with no hand at all are still
+   rejected, which the `nothing` class in that dataset confirms.
+3. Run extraction in the same order the browser does. Identical frames must
    produce identical numbers in both places.
-3. Sort hands by wrist `x` the same way, and never by the handedness label.
-4. Label frames where `extractHandFeatures` returns `null` as no hands and
+4. Sort hands by wrist `x` the same way, and never by the handedness label.
+5. Label frames where `extractHandFeatures` returns `null` as no hands and
    exclude them from the dataset.
-5. Pad the missing hand slot with zeros, never with the other hand and never
+6. Pad the missing hand slot with zeros, never with the other hand and never
    by repeating a frame.
-6. Train on windows of `WINDOW_LENGTH` frames and store the class label per
+7. Train on windows of `WINDOW_LENGTH` frames and store the class label per
    window.

@@ -53,3 +53,7 @@ ml/data/
 ml/artifacts/
 *.tflite
 *.onnx
+# Downloaded ASL Alphabet dataset and generated training data (ml/)
+ml/datasets/
+ml/features/
+ml/debug*/

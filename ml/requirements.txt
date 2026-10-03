@@ -1,0 +1,12 @@
+# Python setup for the Signtext training pipeline in ml/.
+# Create the environment from the ml/ folder with:  python -m venv .venv
+# Then install everything with:                    .venv/Scripts/python -m pip install -r requirements.txt
+#
+# OpenCV comes from opencv-contrib-python, the build MediaPipe depends on.
+# It provides the same cv2 module, so do not install plain opencv-python on
+# top of it: the two packages overwrite each other's files.
+mediapipe==1.0.1
+numpy==2.4.6
+opencv-contrib-python==5.0.0.93
+kaggle==2.2.4
+pytest==9.1.1
