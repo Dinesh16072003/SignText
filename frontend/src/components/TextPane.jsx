@@ -4,11 +4,10 @@ import { useAuth } from '../context/auth-context'
 import StatusLine from './StatusLine'
 import { saveTranslation } from '../services/translations'
 
-const IDLE_MESSAGE = 'Sign recognition is not connected yet, so no text is produced.'
+const IDLE_MESSAGE = 'Copy the text when you are finished, or Clear to start again.'
 
-function TextPane({ source }) {
+function TextPane({ source, text, onTextChange, onClear, modelStatus }) {
   const { user } = useAuth()
-  const [text, setText] = useState('')
   const [notice, setNotice] = useState({ tone: 'idle', text: '' })
   const [isSaving, setIsSaving] = useState(false)
 
@@ -30,9 +29,9 @@ function TextPane({ source }) {
   }, [text])
 
   const handleClear = useCallback(() => {
-    setText('')
+    onClear()
     setNotice({ tone: 'idle', text: 'Text cleared.' })
-  }, [])
+  }, [onClear])
 
   const handleSave = useCallback(async () => {
     setIsSaving(true)
@@ -82,6 +81,10 @@ function TextPane({ source }) {
         </div>
       </div>
 
+      {/* Whether the sign model is loaded and usable, kept next to the text
+          it produces so an empty pane is never mistaken for a working one. */}
+      <StatusLine tone={modelStatus.tone}>{modelStatus.text}</StatusLine>
+
       <div className="text-surface">
         <label className="visually-hidden" htmlFor="translation-text">
           Translation text
@@ -91,7 +94,7 @@ function TextPane({ source }) {
           className="text-input"
           value={text}
           onChange={(event) => {
-            setText(event.target.value)
+            onTextChange(event.target.value)
             setNotice({ tone: 'idle', text: '' })
           }}
           placeholder="Recognised text will appear here. You can also type or paste text to save it."

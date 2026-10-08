@@ -21,6 +21,7 @@ function VideoPane({
   statusText,
   errorText,
   featureDebugLine,
+  signDebugLine,
   fileInputRef,
   onUseCamera,
   onStopCamera,
@@ -133,6 +134,12 @@ function VideoPane({
       {featureDebugLine && (
         <p className="video-debug" aria-hidden="true">
           {featureDebugLine}
+        </p>
+      )}
+
+      {signDebugLine && (
+        <p className="video-debug" aria-hidden="true">
+          {signDebugLine}
         </p>
       )}
 

@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useHandTracker } from '../hooks/useHandTracker'
 import { describeCameraError, useCamera } from '../hooks/useCamera'
 import { useFrameProcessor } from '../hooks/useFrameProcessor'
+import { useSignModel } from '../hooks/useSignModel'
 import { FEATURE_LENGTH } from '../services/handFeatures'
+import { applyCommit, createSignSmoother } from '../services/signSmoother'
 import VideoPane from '../components/VideoPane'
 import TextPane from '../components/TextPane'
 
@@ -10,11 +12,28 @@ const VIDEO_FILE_PATTERN = /\.(mp4|mov|webm|ogv|m4v)$/i
 const UNSUPPORTED_FILE_MESSAGE =
   'That file is not a video Signtext can play. Choose a video file such as MP4, MOV or WebM, then try again.'
 
+// How often the developer overlay refreshes. The model answers every frame,
+// and re-rendering the page at video speed would only slow it down.
+const DEBUG_REFRESH_MS = 100
+
+const MODEL_TONE = {
+  loading: 'loading',
+  ready: 'ready',
+  missing: 'error',
+  error: 'error',
+}
+
 function Translate() {
   const [source, setSource] = useState(null)
   const [uploadName, setUploadName] = useState('')
   const [uploadError, setUploadError] = useState('')
   const [detectedHands, setDetectedHands] = useState(0)
+  const [text, setText] = useState('')
+  const [debugState, setDebugState] = useState(() => ({
+    label: null,
+    confidence: 0,
+    streak: 0,
+  }))
   const detectedHandsRef = useRef(0)
 
   const videoRef = useRef(null)
@@ -23,6 +42,10 @@ function Translate() {
   const layerRef = useRef(null)
   const fileInputRef = useRef(null)
   const uploadUrlRef = useRef('')
+  const smootherRef = useRef(null)
+  const debugAtRef = useRef(0)
+
+  if (smootherRef.current === null) smootherRef.current = createSignSmoother()
 
   const { landmarker, status: trackerStatus, error: trackerError, isReady } =
     useHandTracker()
@@ -33,19 +56,51 @@ function Translate() {
     clearError: clearCameraError,
     isStarting: isCameraStarting,
   } = useCamera()
+  const {
+    phase: modelPhase,
+    message: modelMessage,
+    isReady: isModelReady,
+    predict,
+  } = useSignModel()
 
   const isCameraSource = source === 'camera'
   const isUploadSource = source === 'upload'
   const isRunning = isCameraSource || isUploadSource
   const textSource = isCameraSource ? 'live' : isUploadSource ? 'upload' : null
 
-  // Runs on every detected frame. React only hears about it when the number of
-  // hands changes, so the page is not re-rendered at video speed.
-  const handleFrameFeatures = useCallback(({ handCount }) => {
-    if (handCount === detectedHandsRef.current) return
-    detectedHandsRef.current = handCount
-    setDetectedHands(handCount)
+  const refreshDebug = useCallback(() => {
+    const now = performance.now()
+    if (now - debugAtRef.current < DEBUG_REFRESH_MS) return
+    debugAtRef.current = now
+    setDebugState(smootherRef.current.getDebugState())
   }, [])
+
+  // Runs on every detected frame. React only hears about it when the number
+  // of hands changes or when a letter is committed, so the page is not
+  // re-rendered at video speed.
+  const handleFrameFeatures = useCallback(
+    ({ handCount, features }) => {
+      if (handCount !== detectedHandsRef.current) {
+        detectedHandsRef.current = handCount
+        setDetectedHands(handCount)
+      }
+
+      // Without a loaded model there is no prediction at all: the status line
+      // explains what is happening and the text stays untouched.
+      if (!isModelReady) return
+
+      const prediction = features ? predict(features) : null
+      const committed = smootherRef.current.push({
+        label: prediction?.label ?? null,
+        confidence: prediction?.confidence ?? 0,
+        time: performance.now(),
+      })
+
+      if (committed) setText((current) => applyCommit(current, committed))
+      if (import.meta.env.DEV) refreshDebug()
+    },
+    [isModelReady, predict, refreshDebug]
+  )
 
   useFrameProcessor({
     landmarker,
@@ -56,6 +111,24 @@ function Translate() {
     isRunning: isRunning && isReady,
     onFrameFeatures: handleFrameFeatures,
   })
+
+  // A new video source starts a fresh typing session, so a half typed word
+  // from the last one cannot leak into this one.
+  useEffect(() => {
+    smootherRef.current.reset()
+    debugAtRef.current = 0
+    if (import.meta.env.DEV) setDebugState(smootherRef.current.getDebugState())
+  }, [source])
+
+  const handleTextChange = useCallback((value) => setText(value), [])
+
+  const handleClearText = useCallback(() => {
+    setText('')
+    smootherRef.current.reset()
+    debugAtRef.current = 0
+    if (import.meta.env.DEV) setDebugState(smootherRef.current.getDebugState())
+  }, [])
+
 
   const releaseUpload = useCallback(() => {
     if (uploadUrlRef.current) {
@@ -164,6 +237,16 @@ function Translate() {
       ? `hands: ${detectedHands}, features: ${FEATURE_LENGTH}`
       : ''
 
+  const signDebugLine =
+    import.meta.env.DEV && isRunning
+      ? `model: ${debugState.label ?? 'none'}, confidence: ${debugState.confidence.toFixed(2)}, streak: ${debugState.streak}`
+      : ''
+
+  const modelStatus = {
+    tone: MODEL_TONE[modelPhase] ?? 'idle',
+    text: modelMessage,
+  }
+
   return (
     <main className="page">
       <header className="page-header">
@@ -187,6 +270,7 @@ function Translate() {
           statusText={trackerStatus}
           errorText={message}
           featureDebugLine={featureDebugLine}
+          signDebugLine={signDebugLine}
           onUseCamera={handleUseCamera}
           onStopCamera={handleStopCamera}
           onUploadClick={handleUploadClick}
@@ -194,7 +278,13 @@ function Translate() {
           onRemoveUpload={handleRemoveUpload}
         />
 
-        <TextPane source={textSource} />
+        <TextPane
+          source={textSource}
+          text={text}
+          onTextChange={handleTextChange}
+          onClear={handleClearText}
+          modelStatus={modelStatus}
+        />
       </div>
     </main>
   )
