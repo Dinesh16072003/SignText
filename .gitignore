@@ -57,3 +57,5 @@ ml/artifacts/
 ml/datasets/
 ml/features/
 ml/debug*/
+# Trained checkpoints and SavedModel exports (ml/)
+ml/checkpoints/

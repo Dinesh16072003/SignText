@@ -10,3 +10,7 @@ numpy==2.4.6
 opencv-contrib-python==5.0.0.93
 kaggle==2.2.4
 pytest==9.1.1
+
+# Training (model fitting and stratified splits).
+tensorflow==2.21.0
+scikit-learn==1.9.1

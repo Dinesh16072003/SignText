@@ -156,3 +156,76 @@ output at all.
    by repeating a frame.
 7. Train on windows of `WINDOW_LENGTH` frames and store the class label per
    window.
+
+## The recognition model
+
+The classifier that turns one 126 number input into a class.
+
+| | Value |
+| --- | --- |
+| Model version | `alphabet-v1` |
+| Export and conversion date | 2026-10-06 |
+| Trained with | TensorFlow 2.21.0, Python 3.11.9 |
+| Converted with | TensorFlow.js Converter 4.22.0 |
+| Test accuracy | 0.9799, see `ml/reports/alphabet_eval_2026-10-06.md` |
+
+### Files
+
+| File | What it holds |
+| --- | --- |
+| `frontend/public/models/sign-model/model.json` | Graph topology, input and output names, weight manifest |
+| `frontend/public/models/sign-model/group1-shard1of1.bin` | The weights, 301,936 bytes |
+| `frontend/public/models/sign-model/class_names.json` | The class names, in output order |
+| `ml/checkpoints/alphabet_savedmodel` | The TensorFlow SavedModel the export came from |
+
+### Shapes
+
+| | Shape | Type |
+| --- | --- | --- |
+| Input | `[-1, 126]` | `float32` |
+| Output | `[-1, 28]` | `float32` |
+
+The first dimension is the batch size and is left open: the model accepts one
+row or many. A row is the 126 numbers above, one frame, because
+`WINDOW_LENGTH = 1`. The output is one softmax probability per class, so the
+28 numbers in a row add up to about `1`. The tensor names are `keras_tensor:0`
+for the input and `Identity:0` for the output, as `model.json` records in its
+`signature`.
+
+### Output order
+
+Index `i` of the output is class `i`. The order is fixed by the training class
+list, `ml/features/classes.txt`, and `class_names.json` repeats it in the
+browser. Both files must always match:
+
+| Index | Class | Index | Class | Index | Class |
+| --- | --- | --- | --- | --- | --- |
+| 0 | A | 10 | K | 20 | U |
+| 1 | B | 11 | L | 21 | V |
+| 2 | C | 12 | M | 22 | W |
+| 3 | D | 13 | N | 23 | X |
+| 4 | E | 14 | O | 24 | Y |
+| 5 | F | 15 | P | 25 | Z |
+| 6 | G | 16 | Q | 26 | space |
+| 7 | H | 17 | R | 27 | del |
+| 8 | I | 18 | S | | |
+| 9 | J | 19 | T | | |
+
+Never reorder, insert or drop a class without retraining: the numbers coming
+out of the model are meaningless without this order.
+
+### Format and loader
+
+`model.json` declares `"format": "graph-model"`. The app must load it with
+the graph-model loader, `tf.loadGraphModel()`, from
+`@tensorflow/tfjs-converter`.
+
+The layers loader, `tf.loadLayersModel()`, is the wrong loader for this file
+and rejects it. A graph model carries a TensorFlow `GraphDef`, not a Keras
+layer stack, so there is no `model.layers` to walk. The weight file name, the
+`signature` block and the `weightsManifest` block are all read by the
+graph-model loader only.
+
+The TensorFlow.js model is checked against the SavedModel it came from by
+`ml/tests/test_tfjs_parity.py`. Its report is
+`ml/reports/tfjs_parity_<date>.md`. Run it after any re-export.
