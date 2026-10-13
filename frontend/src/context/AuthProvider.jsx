@@ -1,40 +1,68 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { describeAuthError } from '../services/errorMessages'
-import { isSupabaseConfigured, SETUP_MESSAGE, supabase } from '../services/supabase'
+import { describeApiError, SESSION_ENDED_MESSAGE } from '../services/errorMessages'
+import {
+  SETUP_MESSAGE,
+  apiFetch,
+  clearTokens,
+  getRefreshToken,
+  hasStoredSession,
+  isApiConfigured,
+  refreshNow,
+  registerExpiredHandler,
+  storeTokens,
+} from '../services/apiClient'
 import { AuthContext } from './auth-context'
 
 const MINIMUM_PASSWORD_LENGTH = 8
+
+const SERVER_UNREACHABLE_NOTICE =
+  'Signtext could not reach its server. If it is running, check your connection, then refresh this page.'
 
 function validateEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
 }
 
 export function AuthProvider({ children }) {
-  const [session, setSession] = useState(null)
-  const [isLoadingSession, setIsLoadingSession] = useState(isSupabaseConfigured)
+  const [user, setUser] = useState(null)
+  const [isLoadingSession, setIsLoadingSession] = useState(isApiConfigured && hasStoredSession())
   const [isWorking, setIsWorking] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
   useEffect(() => {
-    if (!isSupabaseConfigured) return
+    const unregister = registerExpiredHandler(() => {
+      setUser(null)
+      setError(SESSION_ENDED_MESSAGE)
+    })
 
     let active = true
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (!active) return
-      setSession(data.session ?? null)
-      setIsLoadingSession(false)
-    })
+    async function restore() {
+      if (!hasStoredSession()) {
+        if (active) setIsLoadingSession(false)
+        return
+      }
 
-    const { data: subscription } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession)
-      setIsLoadingSession(false)
-    })
+      try {
+        const data = await refreshNow()
+        if (active && data?.user) setUser(data.user)
+      } catch (restoreError) {
+        if (active) {
+          setUser(null)
+          if (restoreError?.status === 0) {
+            setNotice(SERVER_UNREACHABLE_NOTICE)
+          }
+        }
+      } finally {
+        if (active) setIsLoadingSession(false)
+      }
+    }
+
+    restore()
 
     return () => {
       active = false
-      subscription.subscription.unsubscribe()
+      unregister()
     }
   }, [])
 
@@ -42,7 +70,7 @@ export function AuthProvider({ children }) {
     setError('')
     setNotice('')
 
-    if (!isSupabaseConfigured) {
+    if (!isApiConfigured()) {
       setError(SETUP_MESSAGE)
       return { ok: false }
     }
@@ -59,34 +87,32 @@ export function AuthProvider({ children }) {
 
     setIsWorking(true)
 
-    const { data, error: signUpError } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
-      options: {
-        data: { display_name: displayName.trim() },
-      },
-    })
-
-    setIsWorking(false)
-
-    if (signUpError) {
-      setError(describeAuthError(signUpError))
+    try {
+      const data = await apiFetch('/api/auth/signup', {
+        method: 'POST',
+        auth: false,
+        body: {
+          email: email.trim(),
+          password,
+          display_name: displayName.trim(),
+        },
+      })
+      storeTokens({ accessToken: data.access_token, refreshToken: data.refresh_token })
+      setUser(data.user)
+      return { ok: true }
+    } catch (signUpError) {
+      setError(describeApiError(signUpError))
       return { ok: false }
+    } finally {
+      setIsWorking(false)
     }
-
-    if (!data.session) {
-      setNotice('Check your inbox for a confirmation email, then sign in.')
-      return { ok: true, needsConfirmation: true }
-    }
-
-    return { ok: true }
   }, [])
 
   const signIn = useCallback(async ({ email, password }) => {
     setError('')
     setNotice('')
 
-    if (!isSupabaseConfigured) {
+    if (!isApiConfigured()) {
       setError(SETUP_MESSAGE)
       return { ok: false }
     }
@@ -98,32 +124,40 @@ export function AuthProvider({ children }) {
 
     setIsWorking(true)
 
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    })
-
-    setIsWorking(false)
-
-    if (signInError) {
-      setError(describeAuthError(signInError))
+    try {
+      const data = await apiFetch('/api/auth/login', {
+        method: 'POST',
+        auth: false,
+        body: { email: email.trim(), password },
+      })
+      storeTokens({ accessToken: data.access_token, refreshToken: data.refresh_token })
+      setUser(data.user)
+      return { ok: true }
+    } catch (signInError) {
+      setError(describeApiError(signInError))
       return { ok: false }
+    } finally {
+      setIsWorking(false)
     }
-
-    return { ok: true }
   }, [])
 
   const signOut = useCallback(async () => {
     setError('')
-    if (!isSupabaseConfigured) return { ok: false }
+    if (!isApiConfigured()) return { ok: true }
 
-    const { error: signOutError } = await supabase.auth.signOut()
-
-    if (signOutError) {
-      setError(describeAuthError(signOutError))
-      return { ok: false }
+    const refreshToken = getRefreshToken()
+    try {
+      await apiFetch('/api/auth/logout', {
+        method: 'POST',
+        auth: false,
+        body: refreshToken ? { refresh_token: refreshToken } : undefined,
+      })
+    } catch {
+      // Signing out still completes if the server cannot be reached.
+    } finally {
+      clearTokens()
+      setUser(null)
     }
-
     return { ok: true }
   }, [])
 
@@ -134,22 +168,21 @@ export function AuthProvider({ children }) {
 
   const value = useMemo(
     () => ({
-      session,
-      user: session?.user ?? null,
+      session: user,
+      user,
       isLoadingSession,
       isWorking,
       error,
       notice,
-      isConfigured: isSupabaseConfigured,
+      isConfigured: isApiConfigured(),
       setupMessage: SETUP_MESSAGE,
-      displayName:
-        session?.user?.user_metadata?.display_name || session?.user?.email || '',
+      displayName: user?.display_name || user?.email || '',
       signUp,
       signIn,
       signOut,
       clearMessages,
     }),
-    [session, isLoadingSession, isWorking, error, notice, signUp, signIn, signOut, clearMessages]
+    [user, isLoadingSession, isWorking, error, notice, signUp, signIn, signOut, clearMessages]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

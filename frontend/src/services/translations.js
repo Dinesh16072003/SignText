@@ -1,7 +1,6 @@
-import { describeDataError } from './errorMessages'
-import { isSupabaseConfigured, SETUP_MESSAGE, supabase } from './supabase'
+import { describeApiError } from './errorMessages'
+import { SETUP_MESSAGE, apiFetch, getAccessToken, isApiConfigured } from './apiClient'
 
-const TABLE = 'translations'
 const PAGE_SIZE = 50
 
 /**
@@ -9,7 +8,7 @@ const PAGE_SIZE = 50
  * Returns { ok: true, translation } or { ok: false, message }.
  */
 export async function saveTranslation({ text, source }) {
-  if (!isSupabaseConfigured) {
+  if (!isApiConfigured()) {
     return { ok: false, message: SETUP_MESSAGE }
   }
 
@@ -19,59 +18,60 @@ export async function saveTranslation({ text, source }) {
     return { ok: false, message: 'There is no text to save yet.' }
   }
 
-  const { data: userData, error: userError } = await supabase.auth.getUser()
-
-  if (userError || !userData?.user) {
+  if (!getAccessToken()) {
     return { ok: false, message: 'Sign in again to save this translation.' }
   }
 
-  const { data, error } = await supabase
-    .from(TABLE)
-    .insert({ user_id: userData.user.id, text: trimmed, source })
-    .select('id, text, source, created_at')
-    .single()
-
-  if (error) {
-    return { ok: false, message: describeDataError(error) }
+  try {
+    const translation = await apiFetch('/api/translations', {
+      method: 'POST',
+      body: { text: trimmed, source },
+    })
+    return { ok: true, translation }
+  } catch (error) {
+    return { ok: false, message: describeApiError(error) }
   }
-
-  return { ok: true, translation: data }
 }
 
 /**
  * Lists the signed-in person's translations, newest first.
  */
 export async function listTranslations() {
-  if (!isSupabaseConfigured) {
+  if (!isApiConfigured()) {
     return { ok: false, message: SETUP_MESSAGE, translations: [] }
   }
 
-  const { data, error } = await supabase
-    .from(TABLE)
-    .select('id, text, source, created_at')
-    .order('created_at', { ascending: false })
-    .limit(PAGE_SIZE)
-
-  if (error) {
-    return { ok: false, message: describeDataError(error), translations: [] }
+  if (!getAccessToken()) {
+    return { ok: false, message: 'Sign in again to view your history.', translations: [] }
   }
 
-  return { ok: true, translations: data ?? [] }
+  try {
+    const data = await apiFetch(`/api/translations?page=1&page_size=${PAGE_SIZE}`)
+    return { ok: true, translations: data.translations ?? [] }
+  } catch (error) {
+    return { ok: false, message: describeApiError(error), translations: [] }
+  }
 }
 
 /**
  * Deletes one translation belonging to the signed-in person.
  */
 export async function deleteTranslation(id) {
-  if (!isSupabaseConfigured) {
+  if (!isApiConfigured()) {
     return { ok: false, message: SETUP_MESSAGE }
   }
 
-  const { error } = await supabase.from(TABLE).delete().eq('id', id)
-
-  if (error) {
-    return { ok: false, message: describeDataError(error) }
+  if (!getAccessToken()) {
+    return { ok: false, message: 'Sign in again to delete this translation.' }
   }
 
-  return { ok: true }
+  try {
+    await apiFetch(`/api/translations/${id}`, { method: 'DELETE' })
+    return { ok: true }
+  } catch (error) {
+    if (error.status === 404) {
+      return { ok: false, message: 'That translation is already gone. Refresh the list to see the latest.' }
+    }
+    return { ok: false, message: describeApiError(error) }
+  }
 }

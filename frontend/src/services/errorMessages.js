@@ -79,7 +79,7 @@ export function describeDataError(error) {
   if (!error) return GENERIC_DATA_MESSAGE
 
   if (error.status === 401 || error.code === 'PGRST301') {
-    return 'Your session has ended. Sign in again to continue.'
+    return SESSION_ENDED_MESSAGE
   }
 
   if (isMissingTable(error)) return MISSING_TABLES_MESSAGE
@@ -91,4 +91,36 @@ export function describeDataError(error) {
   if (looksOffline(error)) return OFFLINE_MESSAGE
 
   return GENERIC_DATA_MESSAGE
+}
+
+export const SESSION_ENDED_MESSAGE =
+  'Your session has ended. Sign in again to continue.'
+
+const SERVER_UNREACHABLE_MESSAGE =
+  'Signtext could not reach its server. Make sure it is running, then check your connection and try again.'
+
+const API_BY_DETAIL = {
+  invalid_credentials: AUTH_BY_CODE.invalid_credentials,
+  user_already_exists: AUTH_BY_CODE.user_already_exists,
+  weak_password: AUTH_BY_CODE.weak_password,
+  validation_failed: 'Check the email address and try again.',
+  over_request_rate_limit: AUTH_BY_CODE.over_request_rate_limit,
+  over_email_send_rate_limit: AUTH_BY_CODE.over_email_send_rate_limit,
+  not_found: 'That item could not be found. It may have been deleted already.',
+}
+
+const GENERIC_API_MESSAGE = 'Something went wrong while talking to the server. Try again.'
+
+export function describeApiError(error) {
+  if (error?.status === 0) return SERVER_UNREACHABLE_MESSAGE
+
+  if (error?.status === 401 && error?.detail === 'session_expired') {
+    return SESSION_ENDED_MESSAGE
+  }
+
+  if (typeof error?.detail === 'string' && API_BY_DETAIL[error.detail]) {
+    return API_BY_DETAIL[error.detail]
+  }
+
+  return GENERIC_API_MESSAGE
 }
