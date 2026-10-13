@@ -414,7 +414,7 @@
   color: var(--color-text);
 }
 
-/* Setup notice, shown when the Supabase keys are missing */
+/* Setup notice, shown when the server connection is not set up */
 .setup-notice {
   display: flex;
   flex-direction: column;

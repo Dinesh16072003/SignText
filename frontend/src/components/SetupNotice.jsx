@@ -1,7 +1,7 @@
 import StatusLine from './StatusLine'
 
 /**
- * Shown instead of account features when the Supabase keys are missing.
+ * Shown instead of account features when the server connection is not set up.
  */
 export default function SetupNotice({ message }) {
   return (
