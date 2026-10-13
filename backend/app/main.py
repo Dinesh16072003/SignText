@@ -9,6 +9,7 @@ from app.body_limit import RequestBodySizeMiddleware
 from app.config import CORS_ORIGINS, MAX_BODY_BYTES, RUN_MIGRATIONS
 from app.db import engine
 from app.routers import auth, health, translations
+from app.security_headers import SecurityHeadersMiddleware
 from migrations.runner import run_migrations
 
 
@@ -22,6 +23,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="Signtext API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(RequestBodySizeMiddleware, max_bytes=MAX_BODY_BYTES)
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
