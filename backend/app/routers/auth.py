@@ -16,6 +16,7 @@ from app.models import AuthSession, User
 from app.rate_limit import (
     login_rate_limiter,
     refresh_rate_limiter,
+    signup_rate_limiter,
 )
 from app.schemas.auth import (
     LoginRequest,
@@ -144,17 +145,23 @@ def signup(
     response: Response,
     db: Session = Depends(get_db),
 ):
+    client = _client_key(request)
+    if signup_rate_limiter.is_blocked(client):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "over_request_rate_limit")
+    signup_rate_limiter.register(client)
+
     password = payload.password.get_secret_value()
     if len(password) < PASSWORD_MIN_LENGTH:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "weak_password")
 
     email = payload.email.strip().lower()
+    password_hash = hash_password(password)
     if db.scalar(select(User).where(User.email == email)) is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "user_already_exists")
 
     user = User(
         email=email,
-        password_hash=hash_password(password),
+        password_hash=password_hash,
         display_name=payload.display_name.strip(),
         email_verified_at=datetime.now(timezone.utc),
     )

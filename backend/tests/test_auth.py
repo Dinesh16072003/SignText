@@ -3,7 +3,12 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
-from app.config import LOGIN_RATE_LIMIT, REFRESH_COOKIE, REFRESH_RATE_LIMIT
+from app.config import (
+    LOGIN_RATE_LIMIT,
+    REFRESH_COOKIE,
+    REFRESH_RATE_LIMIT,
+    SIGNUP_RATE_LIMIT,
+)
 from app.models import AuthSession, User
 from app.security.tokens import create_access_token, hash_refresh_token
 
@@ -233,6 +238,44 @@ def test_successful_login_resets_failure_counter(client):
 
     assert login(client).status_code == 200
     assert login(client, password="wrong-password").status_code == 401
+
+
+def test_signup_is_rate_limited_after_many_attempts(client):
+    for i in range(SIGNUP_RATE_LIMIT):
+        assert signup(client, email=f"user{i}@example.com").status_code == 201
+
+    blocked = signup(client, email="another@example.com")
+    assert blocked.status_code == 429
+    assert blocked.json()["detail"] == "over_request_rate_limit"
+
+
+def test_signup_rate_limit_counts_conflict_attempts(client):
+    for i in range(SIGNUP_RATE_LIMIT):
+        response = signup(client)
+        if i == 0:
+            assert response.status_code == 201
+        else:
+            assert response.status_code == 409
+
+    blocked = signup(client, email="another@example.com")
+    assert blocked.status_code == 429
+
+
+def test_signup_hashes_password_even_when_email_taken(client, monkeypatch):
+    import app.routers.auth as auth_module
+
+    signup(client)
+    calls = []
+
+    def fake_hash(password):
+        calls.append(password)
+        return "$argon2id$fake-hash"
+
+    monkeypatch.setattr(auth_module, "hash_password", fake_hash)
+
+    response = signup(client)
+    assert response.status_code == 409
+    assert calls == [PASSWORD]
 
 
 def test_refresh_is_rate_limited_after_repeated_failures(client):

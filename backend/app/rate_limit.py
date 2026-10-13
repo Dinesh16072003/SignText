@@ -7,6 +7,8 @@ from app.config import (
     LOGIN_RATE_WINDOW_SECONDS,
     REFRESH_RATE_LIMIT,
     REFRESH_RATE_WINDOW_SECONDS,
+    SIGNUP_RATE_LIMIT,
+    SIGNUP_RATE_WINDOW_SECONDS,
 )
 
 
@@ -33,6 +35,9 @@ class LoginRateLimiter:
             return len(self._failures.get(key, ())) >= self.max_attempts
 
     def register_failure(self, key: str) -> None:
+        self.register(key)
+
+    def register(self, key: str) -> None:
         with self._lock:
             self._prune(key)
             self._failures.setdefault(key, deque()).append(time.monotonic())
@@ -50,8 +55,10 @@ login_rate_limiter = LoginRateLimiter(LOGIN_RATE_LIMIT, LOGIN_RATE_WINDOW_SECOND
 refresh_rate_limiter = LoginRateLimiter(
     REFRESH_RATE_LIMIT, REFRESH_RATE_WINDOW_SECONDS
 )
+signup_rate_limiter = LoginRateLimiter(SIGNUP_RATE_LIMIT, SIGNUP_RATE_WINDOW_SECONDS)
 
 
 def clear_all_ratelimiters() -> None:
     login_rate_limiter.clear()
     refresh_rate_limiter.clear()
+    signup_rate_limiter.clear()

@@ -6,6 +6,8 @@ os.environ.setdefault("SIGNTEXT_LOGIN_RATE_LIMIT", "5")
 os.environ.setdefault("SIGNTEXT_LOGIN_RATE_WINDOW_SECONDS", "60")
 os.environ.setdefault("SIGNTEXT_REFRESH_RATE_LIMIT", "5")
 os.environ.setdefault("SIGNTEXT_REFRESH_RATE_WINDOW_SECONDS", "60")
+os.environ.setdefault("SIGNTEXT_SIGNUP_RATE_LIMIT", "5")
+os.environ.setdefault("SIGNTEXT_SIGNUP_RATE_WINDOW_SECONDS", "60")
 os.environ.setdefault("SIGNTEXT_MAX_BODY_BYTES", "20000")
 os.environ.setdefault("SIGNTEXT_RUN_MIGRATIONS", "0")
 
