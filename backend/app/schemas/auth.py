@@ -3,18 +3,19 @@ from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field, SecretStr
 
+from app.config import PASSWORD_MAX_LENGTH
 from app.models import User
 
 
 class SignUpRequest(BaseModel):
     email: EmailStr
-    password: SecretStr
+    password: SecretStr = Field(max_length=PASSWORD_MAX_LENGTH, min_length=1)
     display_name: str = Field(default="", max_length=120)
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: SecretStr
+    password: SecretStr = Field(max_length=PASSWORD_MAX_LENGTH, min_length=1)
 
 
 class RefreshRequest(BaseModel):

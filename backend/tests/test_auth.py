@@ -77,6 +77,39 @@ def test_signup_rejects_invalid_email(client):
     assert response.json()["detail"] == "validation_failed"
 
 
+def test_signup_accepts_password_at_hard_max(client):
+    response = signup(client, password="x" * 128)
+    assert response.status_code == 201
+
+
+def test_signup_rejects_password_over_hard_max(client):
+    response = signup(client, password="x" * 129)
+    assert response.status_code == 422
+    assert response.json()["detail"] == "validation_failed"
+
+
+def test_login_rejects_password_over_hard_max(client):
+    response = login(client, password="x" * 129)
+    assert response.status_code == 422
+    assert response.json()["detail"] == "validation_failed"
+
+
+def test_oversized_request_body_is_rejected_with_413(client):
+    payload = {
+        "email": "big@example.com",
+        "password": "correct-horse-battery",
+        "display_name": "x" * 30000,
+    }
+    response = client.post("/api/auth/signup", json=payload)
+    assert response.status_code == 413
+    assert response.json()["detail"] == "body_too_large"
+
+
+def test_normal_sized_request_still_works_with_body_limit(client):
+    response = signup(client)
+    assert response.status_code == 201
+
+
 def test_signup_rejects_duplicate_email(client):
     signup(client)
     response = signup(client)

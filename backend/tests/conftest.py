@@ -4,6 +4,7 @@ os.environ.setdefault("SIGNTEXT_SECRET_KEY", "test-secret-key-not-for-production
 os.environ.setdefault("SIGNTEXT_ACCESS_TOKEN_MINUTES", "30")
 os.environ.setdefault("SIGNTEXT_LOGIN_RATE_LIMIT", "5")
 os.environ.setdefault("SIGNTEXT_LOGIN_RATE_WINDOW_SECONDS", "60")
+os.environ.setdefault("SIGNTEXT_MAX_BODY_BYTES", "20000")
 os.environ.setdefault("SIGNTEXT_RUN_MIGRATIONS", "0")
 
 import pytest
