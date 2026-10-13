@@ -12,12 +12,13 @@ from app.rate_limit import login_rate_limiter
 from app.schemas.auth import (
     LoginRequest,
     LogoutRequest,
+    RefreshRequest,
     SignUpRequest,
     SignUpResponse,
     TokenResponse,
     UserOut,
 )
-from app.security.deps import get_current_user
+from app.security.deps import SESSION_ERROR, get_current_user
 from app.security.passwords import DUMMY_HASH, hash_password, verify_password
 from app.security.tokens import (
     create_access_token,
@@ -55,6 +56,18 @@ def _find_session(db: Session, refresh_token: str) -> AuthSession | None:
 
 def _session_is_expired(session: AuthSession) -> bool:
     return _ensure_utc(session.expires_at) <= _utcnow()
+
+
+def _revoke_family(db: Session, family_id) -> None:
+    now = _utcnow()
+    sessions = db.scalars(
+        select(AuthSession).where(
+            AuthSession.family_id == family_id,
+            AuthSession.revoked_at.is_(None),
+        )
+    ).all()
+    for session in sessions:
+        session.revoked_at = now
 
 
 def _start_session(db: Session, user: User, request: Request) -> str:
@@ -141,6 +154,50 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
         token_type=TOKEN_TYPE,
         expires_in=expires_in,
         refresh_token=refresh_token,
+        user=UserOut.from_user(user),
+    )
+
+
+@router.post("/refresh", response_model=TokenResponse)
+def refresh(payload: RefreshRequest, request: Request, db: Session = Depends(get_db)):
+    session = _find_session(db, payload.refresh_token)
+
+    if session is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, SESSION_ERROR)
+
+    if session.revoked_at is not None:
+        _revoke_family(db, session.family_id)
+        db.commit()
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, SESSION_ERROR)
+
+    if _session_is_expired(session):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, SESSION_ERROR)
+
+    user = db.get(User, session.user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, SESSION_ERROR)
+
+    access_token, expires_in = create_access_token(user.id)
+    new_refresh_token = generate_refresh_token()
+    user_agent = request.headers.get("user-agent")
+
+    session.revoked_at = _utcnow()
+    db.add(
+        AuthSession(
+            user_id=user.id,
+            token_hash=hash_refresh_token(new_refresh_token),
+            expires_at=refresh_expires_at(),
+            family_id=session.family_id,
+            user_agent=user_agent[:255] if user_agent else None,
+        )
+    )
+    db.commit()
+
+    return TokenResponse(
+        access_token=access_token,
+        token_type=TOKEN_TYPE,
+        expires_in=expires_in,
+        refresh_token=new_refresh_token,
         user=UserOut.from_user(user),
     )
 
