@@ -21,6 +21,7 @@ from app.db import get_db
 from app.main import app
 from app.models import Base
 from app.rate_limit import clear_all_ratelimiters
+from app.security.denylist import clear as clear_denylist
 
 
 @pytest.fixture()
@@ -52,9 +53,11 @@ def client(db_engine, db_session_factory):
 
     app.dependency_overrides[get_db] = override_get_db
     clear_all_ratelimiters()
+    clear_denylist()
 
     with TestClient(app) as test_client:
         yield test_client
 
     app.dependency_overrides.clear()
     clear_all_ratelimiters()
+    clear_denylist()

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import User
+from app.security.denylist import is_denied
 from app.security.tokens import decode_access_token
 
 SESSION_ERROR = "session_expired"
@@ -22,6 +23,9 @@ def get_current_user(
 
     payload = decode_access_token(credentials.credentials)
     if not payload:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, SESSION_ERROR)
+
+    if payload.get("jti") and is_denied(str(payload["jti"])):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, SESSION_ERROR)
 
     try:

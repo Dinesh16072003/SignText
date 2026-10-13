@@ -26,6 +26,7 @@ from app.schemas.auth import (
     UserOut,
 )
 from app.security.deps import SESSION_ERROR, get_current_user
+from app.security.denylist import deny_access_token
 from app.security.passwords import DUMMY_HASH, hash_password, verify_password
 from app.security.tokens import (
     create_access_token,
@@ -85,6 +86,13 @@ def _cleared_cookie_header(request: Request) -> dict[str, str]:
 
 def _read_refresh_cookie(request: Request) -> str | None:
     return request.cookies.get(REFRESH_COOKIE)
+
+
+def _deny_presented_access_token(request: Request) -> None:
+    header = request.headers.get("authorization", "")
+    scheme, _, token = header.partition(" ")
+    if scheme.lower() == "bearer" and token:
+        deny_access_token(token)
 
 
 def _ensure_utc(value: datetime) -> datetime:
@@ -295,6 +303,7 @@ def refresh(
 def logout(
     request: Request, response: Response, db: Session = Depends(get_db)
 ):
+    _deny_presented_access_token(request)
     refresh_token = _read_refresh_cookie(request)
     if refresh_token:
         session = _find_session(db, refresh_token)

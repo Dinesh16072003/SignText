@@ -455,6 +455,36 @@ def test_revoke_family_revokes_members_with_a_shared_id(db_session_factory, clie
     assert {s.token_hash for s in revoked} == {"family-member-1", "family-member-2"}
 
 
+def test_logout_denies_the_access_token(client):
+    access_token = signup(client).json()["access_token"]
+
+    response = client.post(
+        "/api/auth/logout", headers={"Authorization": f"Bearer {access_token}"}
+    )
+    assert response.status_code == 200
+
+    me = client.get(
+        "/api/auth/me", headers={"Authorization": f"Bearer {access_token}"}
+    )
+    assert me.status_code == 401
+    assert me.json()["detail"] == "session_expired"
+
+
+def test_logout_does_not_deny_sessions_for_other_users(client):
+    first = signup(client).json()
+    client.post(
+        "/api/auth/logout",
+        headers={"Authorization": f"Bearer {first['access_token']}"},
+    )
+
+    fresh = signup(client, email="other@example.com").json()
+    me = client.get(
+        "/api/auth/me",
+        headers={"Authorization": f"Bearer {fresh['access_token']}"},
+    )
+    assert me.status_code == 200
+
+
 def test_password_and_tokens_are_never_logged(client, caplog):
     with caplog.at_level("DEBUG"):
         response = signup(client)

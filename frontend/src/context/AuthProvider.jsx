@@ -146,7 +146,7 @@ export function AuthProvider({ children }) {
     try {
       await apiFetch('/api/auth/logout', {
         method: 'POST',
-        auth: false,
+        auth: true,
       })
     } catch {
       // Signing out still completes if the server cannot be reached.
