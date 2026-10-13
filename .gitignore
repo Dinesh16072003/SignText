@@ -39,7 +39,18 @@ venv/
 env/
 *.egg-info/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
 .ipynb_checkpoints/
+
+# Test and coverage output
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
 mlruns/
 mlartifacts/
 
@@ -47,6 +58,7 @@ mlartifacts/
 supabase/.temp/
 *.sqlite
 *.sqlite3
+*.db
 
 # Cached ML data and model artefacts
 ml/data/
