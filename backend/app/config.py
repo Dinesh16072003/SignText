@@ -22,6 +22,13 @@ CORS_ORIGINS = _split_origins(
     os.getenv("SIGNTEXT_CORS_ORIGINS", "http://localhost:5173")
 )
 
+RUN_MIGRATIONS = os.getenv("SIGNTEXT_RUN_MIGRATIONS", "1").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+
 SECRET_KEY = os.getenv("SIGNTEXT_SECRET_KEY", "").strip()
 if not SECRET_KEY:
     SECRET_KEY = secrets.token_urlsafe(48)
