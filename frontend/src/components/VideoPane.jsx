@@ -26,6 +26,12 @@ function VideoPane({
   errorText,
   featureDebugLine,
   signDebugLine,
+  devThreshold,
+  devStreak,
+  topPredictions,
+  onDevThresholdChange,
+  onDevStreakChange,
+  onDevReset,
   onUseCamera,
   onStopCamera,
   onUploadClick,
@@ -242,6 +248,78 @@ function VideoPane({
         <p className="video-debug" aria-hidden="true">
           {signDebugLine}
         </p>
+      )}
+
+      {import.meta.env.DEV && isRunning && (
+        <div className="dev-panel">
+          <div className="dev-panel-head">
+            <span className="dev-panel-title">Recognition debug</span>
+            <span className="dev-panel-badge">Dev only</span>
+          </div>
+
+          <div className="dev-row">
+            <label className="dev-row-label" htmlFor="dev-threshold">
+              Confidence threshold
+              <span className="dev-row-value">{devThreshold.toFixed(2)}</span>
+            </label>
+            <input
+              id="dev-threshold"
+              className="dev-range"
+              type="range"
+              min="0.3"
+              max="1"
+              step="0.01"
+              value={devThreshold}
+              onChange={onDevThresholdChange}
+            />
+          </div>
+
+          <div className="dev-row">
+            <label className="dev-row-label" htmlFor="dev-streak">
+              Committed frames
+              <span className="dev-row-value">{devStreak}</span>
+            </label>
+            <input
+              id="dev-streak"
+              className="dev-range"
+              type="range"
+              min="1"
+              max="30"
+              step="1"
+              value={devStreak}
+              onChange={onDevStreakChange}
+            />
+          </div>
+
+          <Button variant="quiet" size="small" onClick={onDevReset}>
+            Reset to defaults
+          </Button>
+
+          <p className="dev-note">
+            Changing either value applies immediately from the next frame and restarts the current
+            streak.
+          </p>
+
+          <ol className="dev-tops" aria-label="Top three predictions, strongest first">
+            {topPredictions.length > 0 ? (
+              topPredictions.map((item, index) => (
+                <li className="dev-top" key={item.index}>
+                  <span className="dev-top-rank">{index + 1}</span>
+                  <span className="dev-top-label">{item.label}</span>
+                  <span className="dev-top-bar" aria-hidden="true">
+                    <span
+                      className="dev-top-bar-fill"
+                      style={{ width: `${Math.round(item.confidence * 100)}%` }}
+                    />
+                  </span>
+                  <span className="dev-top-confidence">{item.confidence.toFixed(2)}</span>
+                </li>
+              ))
+            ) : (
+              <li className="dev-top dev-top-empty">Hold a sign to see the top three.</li>
+            )}
+          </ol>
+        </div>
       )}
 
       <div className="tips">

@@ -5,7 +5,12 @@ import { useFrameProcessor } from '../hooks/useFrameProcessor'
 import { useSignModel } from '../hooks/useSignModel'
 import { usePageTitle } from '../hooks/usePageTitle'
 import { FEATURE_LENGTH } from '../services/handFeatures'
-import { applyCommit, createSignSmoother } from '../services/signSmoother'
+import {
+  COMMIT_STREAK,
+  CONFIDENCE_THRESHOLD,
+  applyCommit,
+  createSignSmoother,
+} from '../services/signSmoother'
 import VideoPane from '../components/VideoPane'
 import TextPane from '../components/TextPane'
 
@@ -37,7 +42,14 @@ function Translate() {
     confidence: 0,
     streak: 0,
   }))
+  // Developer-only tuning: live threshold and streak for the smoother, and the
+  // top three candidates of the last frame. Nothing here is shown or changed
+  // in a production build.
+  const [devThreshold, setDevThreshold] = useState(CONFIDENCE_THRESHOLD)
+  const [devStreak, setDevStreak] = useState(COMMIT_STREAK)
+  const [topPredictions, setTopPredictions] = useState([])
   const detectedHandsRef = useRef(0)
+  const topPredictionsRef = useRef([])
 
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
@@ -64,6 +76,7 @@ function Translate() {
     message: modelMessage,
     isReady: isModelReady,
     predict,
+    predictTop,
     retry: retryModel,
   } = useSignModel()
 
@@ -79,6 +92,7 @@ function Translate() {
     if (now - debugAtRef.current < DEBUG_REFRESH_MS) return
     debugAtRef.current = now
     setDebugState(smootherRef.current.getDebugState())
+    if (import.meta.env.DEV) setTopPredictions(topPredictionsRef.current)
   }, [])
 
   // Runs on every detected frame. React only hears about it when the number
@@ -95,17 +109,33 @@ function Translate() {
       // explains what is happening and the text stays untouched.
       if (!isModelReady) return
 
-      const prediction = features ? predict(features) : null
+      // One model read per frame, however it is consumed. In development the
+      // read is the top-three list, whose first entry drives the smoother
+      // exactly like the standalone top prediction does in production, so the
+      // debug overlay never shows a different answer than the one that typed
+      // the letter.
+      let best = null
+      if (features) {
+        if (import.meta.env.DEV) {
+          topPredictionsRef.current = predictTop(features)
+          best = topPredictionsRef.current[0] ?? null
+        } else {
+          best = predict(features)
+        }
+      } else if (import.meta.env.DEV) {
+        topPredictionsRef.current = []
+      }
+
       const committed = smootherRef.current.push({
-        label: prediction?.label ?? null,
-        confidence: prediction?.confidence ?? 0,
+        label: best?.label ?? null,
+        confidence: best?.confidence ?? 0,
         time: performance.now(),
       })
 
       if (committed) setText((current) => applyCommit(current, committed))
       if (import.meta.env.DEV) refreshDebug()
     },
-    [isModelReady, predict, refreshDebug]
+    [isModelReady, predict, predictTop, refreshDebug]
   )
 
   useFrameProcessor({
@@ -124,6 +154,10 @@ function Translate() {
     smootherRef.current.reset()
     debugAtRef.current = 0
     if (import.meta.env.DEV) setDebugState(smootherRef.current.getDebugState())
+    if (import.meta.env.DEV) {
+      topPredictionsRef.current = []
+      setTopPredictions([])
+    }
   }, [source])
 
   const handleTextChange = useCallback((value) => setText(value), [])
@@ -133,7 +167,47 @@ function Translate() {
     smootherRef.current.reset()
     debugAtRef.current = 0
     if (import.meta.env.DEV) setDebugState(smootherRef.current.getDebugState())
+    if (import.meta.env.DEV) {
+      topPredictionsRef.current = []
+      setTopPredictions([])
+    }
   }, [])
+
+  // Developer-only handles: changing a value swaps in a fresh smoother, which
+  // resets any streak in progress, so the new rule applies from the very next
+  // frame. Production never touches these: the controls only exist in
+  // development and the smoother keeps the documented defaults.
+  const applyDevSettings = useCallback((threshold, streak) => {
+    smootherRef.current = createSignSmoother({ threshold, streak })
+    debugAtRef.current = 0
+    topPredictionsRef.current = []
+    setTopPredictions([])
+    setDebugState(smootherRef.current.getDebugState())
+  }, [])
+
+  const handleDevThresholdChange = useCallback(
+    (event) => {
+      const threshold = Number(event.target.value)
+      setDevThreshold(threshold)
+      applyDevSettings(threshold, devStreak)
+    },
+    [applyDevSettings, devStreak]
+  )
+
+  const handleDevStreakChange = useCallback(
+    (event) => {
+      const streak = Number(event.target.value)
+      setDevStreak(streak)
+      applyDevSettings(devThreshold, streak)
+    },
+    [applyDevSettings, devThreshold]
+  )
+
+  const handleDevReset = useCallback(() => {
+    setDevThreshold(CONFIDENCE_THRESHOLD)
+    setDevStreak(COMMIT_STREAK)
+    applyDevSettings(CONFIDENCE_THRESHOLD, COMMIT_STREAK)
+  }, [applyDevSettings])
 
   const releaseUpload = useCallback(() => {
     if (uploadUrlRef.current) {
@@ -289,6 +363,12 @@ function Translate() {
           errorText={message}
           featureDebugLine={featureDebugLine}
           signDebugLine={signDebugLine}
+          devThreshold={devThreshold}
+          devStreak={devStreak}
+          topPredictions={topPredictions}
+          onDevThresholdChange={handleDevThresholdChange}
+          onDevStreakChange={handleDevStreakChange}
+          onDevReset={handleDevReset}
           onUseCamera={handleUseCamera}
           onStopCamera={handleStopCamera}
           onUploadClick={handleUploadClick}

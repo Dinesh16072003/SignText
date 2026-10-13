@@ -18,6 +18,7 @@ import {
   SIGN_MODEL_MESSAGES,
   loadSignModel,
   predictSign,
+  predictTopClasses,
 } from './signModel'
 
 const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -117,6 +118,27 @@ describe('agreement with the Python results from Part 6E', () => {
       const prediction = predictSign(loaded, sample.features)
       expect(prediction.confidence).toBeCloseTo(sample.confidence, 4)
     }
+  })
+})
+
+describe('the developer top-three readout', () => {
+  it('starts with the same prediction as predictSign, sorted strongest first', () => {
+    for (const sample of fixture.samples) {
+      const top = predictTopClasses(loaded, sample.features, 3)
+
+      expect(top).toHaveLength(3)
+      expect(top[0].label).toBe(predictSign(loaded, sample.features)?.label)
+      expect(top[0].confidence).toBeCloseTo(sample.confidence, 4)
+      for (let index = 1; index < top.length; index += 1) {
+        expect(top[index].confidence).toBeLessThanOrEqual(top[index - 1].confidence)
+      }
+    }
+  })
+
+  it('is empty when there is nothing to run', () => {
+    expect(predictTopClasses(loaded, [0, 0, 0])).toEqual([])
+    expect(predictTopClasses(loaded, null)).toEqual([])
+    expect(predictTopClasses(null, fixture.samples[0].features)).toEqual([])
   })
 })
 

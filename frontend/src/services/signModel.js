@@ -214,19 +214,22 @@ export async function loadSignModel({
 }
 
 /**
- * Runs one frame of FEATURE_LENGTH numbers through the model and returns
- * { index, label, confidence }, or null when there is nothing to run.
+ * Runs one frame of FEATURE_LENGTH numbers through the model and returns the
+ * strongest `count` classes as { index, label, confidence }, strongest first.
+ * Returns an empty list when there is nothing to run. Used by the developer
+ * overlay to show the top three candidates; predictSign reads the same numbers
+ * through this function, so the two never disagree.
  *
  * Every tensor is created and destroyed inside tf.tidy, so nothing is left
  * behind after thousands of frames.
  */
-export function predictSign(signModel, features) {
+export function predictTopClasses(signModel, features, count = 3) {
   const tf = tfModule
 
   // Until loadSignModel has finished there is nothing to run, and a missing
   // prediction is what keeps the text pane honest.
   if (!tf || !signModel?.model || !Array.isArray(features) || features.length !== FEATURE_LENGTH) {
-    return null
+    return []
   }
 
   const { model, classNames } = signModel
@@ -237,15 +240,18 @@ export function predictSign(signModel, features) {
     const output = Array.isArray(result) ? result[0] : result
     const probabilities = output.dataSync()
 
-    let bestIndex = 0
-    for (let index = 1; index < probabilities.length; index += 1) {
-      if (probabilities[index] > probabilities[bestIndex]) bestIndex = index
-    }
-
-    return {
-      index: bestIndex,
-      label: classNames[bestIndex],
-      confidence: probabilities[bestIndex],
-    }
+    return Array.from(probabilities)
+      .map((confidence, index) => ({ index, label: classNames[index], confidence }))
+      .sort((a, b) => b.confidence - a.confidence)
+      .slice(0, count)
   })
+}
+
+/**
+ * Runs one frame of FEATURE_LENGTH numbers through the model and returns the
+ * single strongest { index, label, confidence }, or null when there is
+ * nothing to run.
+ */
+export function predictSign(signModel, features) {
+  return predictTopClasses(signModel, features, 1)[0] ?? null
 }

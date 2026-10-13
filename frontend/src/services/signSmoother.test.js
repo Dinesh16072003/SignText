@@ -136,6 +136,30 @@ describe('repeating the same letter', () => {
   })
 })
 
+describe('live tuning options, used by the developer panel', () => {
+  it('loosens a lower-confidence sign into a letter', () => {
+    const sequence = frames('A', 3, { confidence: 0.62 })
+
+    // The defaults (0.8 / 8) never commit this: every frame is ignored.
+    expect(run(createSignSmoother(), sequence)).toEqual([])
+
+    const tuned = run(createSignSmoother({ threshold: 0.6, streak: 3 }), sequence)
+    expect(tuned).toEqual(['A'])
+  })
+
+  it('tightens, so a sign must be held longer and more steadily', () => {
+    const smoother = createSignSmoother({ threshold: 0.85, streak: 12 })
+    expect(run(smoother, frames('B', COMMIT_STREAK))).toEqual([])
+    expect(run(smoother, frames('B', 4, { start: COMMIT_STREAK * FRAME_MS }))).toEqual(['B'])
+  })
+
+  it('keeps the documented defaults when created without options', () => {
+    expect(run(createSignSmoother(), frames('C', COMMIT_STREAK, { confidence: 0.8 }))).toEqual([
+      'C',
+    ])
+  })
+})
+
 describe('space and del', () => {
   it('are committed like any other class', () => {
     const smoother = createSignSmoother()

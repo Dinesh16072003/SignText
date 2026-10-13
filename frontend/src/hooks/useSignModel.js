@@ -3,6 +3,7 @@ import {
   SIGN_MODEL_MESSAGES,
   loadSignModel,
   predictSign,
+  predictTopClasses,
 } from '../services/signModel'
 
 // The model is loaded once for the whole app, not once per mount. React
@@ -39,6 +40,11 @@ export function useSignModel() {
 
   useEffect(() => {
     let cancelled = false
+    // StrictMode runs this effect twice in development: setup, cleanup, then
+    // setup again. The ref survives both runs, so it must be set true here
+    // again, or the second setup would think the component unmounted and the
+    // model would never become ready in the dev server.
+    isMountedRef.current = true
 
     loadOnce()
       .then((loaded) => {
@@ -96,12 +102,20 @@ export function useSignModel() {
 
   const predict = useCallback((features) => predictSign(modelRef.current, features), [])
 
+  // Extra read for the developer overlay: the top three candidates of the same
+  // frame. Only the Translate page calls it, and only in development.
+  const predictTop = useCallback(
+    (features) => predictTopClasses(modelRef.current, features, 3),
+    []
+  )
+
   return {
     phase: state.phase,
     message: state.message,
     classNames: state.classNames,
     isReady: state.phase === 'ready',
     predict,
+    predictTop,
     retry,
   }
 }
