@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import CORS_ORIGINS
-from app.routers import auth, health
+from app.routers import auth, health, translations
 
 app = FastAPI(title="Signtext API", version="0.1.0")
 
@@ -24,3 +24,4 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
 app.include_router(health.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
+app.include_router(translations.router, prefix="/api")
