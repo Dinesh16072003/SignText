@@ -11,11 +11,13 @@ from app.models import AuthSession, User
 from app.rate_limit import login_rate_limiter
 from app.schemas.auth import (
     LoginRequest,
+    LogoutRequest,
     SignUpRequest,
     SignUpResponse,
     TokenResponse,
     UserOut,
 )
+from app.security.deps import get_current_user
 from app.security.passwords import DUMMY_HASH, hash_password, verify_password
 from app.security.tokens import (
     create_access_token,
@@ -31,6 +33,28 @@ TOKEN_TYPE = "bearer"
 
 def _client_key(request: Request) -> str:
     return request.client.host if request.client else "unknown"
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _ensure_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _find_session(db: Session, refresh_token: str) -> AuthSession | None:
+    return db.scalar(
+        select(AuthSession).where(
+            AuthSession.token_hash == hash_refresh_token(refresh_token)
+        )
+    )
+
+
+def _session_is_expired(session: AuthSession) -> bool:
+    return _ensure_utc(session.expires_at) <= _utcnow()
 
 
 def _start_session(db: Session, user: User, request: Request) -> str:
@@ -119,3 +143,23 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
         refresh_token=refresh_token,
         user=UserOut.from_user(user),
     )
+
+
+@router.post("/logout")
+def logout(payload: LogoutRequest | None = None, db: Session = Depends(get_db)):
+    if payload and payload.refresh_token:
+        session = _find_session(db, payload.refresh_token)
+        if (
+            session is not None
+            and session.revoked_at is None
+            and not _session_is_expired(session)
+        ):
+            session.revoked_at = _utcnow()
+            db.commit()
+
+    return {"ok": True}
+
+
+@router.get("/me", response_model=UserOut)
+def me(current_user: User = Depends(get_current_user)):
+    return UserOut.from_user(current_user)
