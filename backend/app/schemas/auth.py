@@ -18,14 +18,6 @@ class LoginRequest(BaseModel):
     password: SecretStr = Field(max_length=PASSWORD_MAX_LENGTH, min_length=1)
 
 
-class RefreshRequest(BaseModel):
-    refresh_token: str
-
-
-class LogoutRequest(BaseModel):
-    refresh_token: str | None = None
-
-
 class UserOut(BaseModel):
     id: uuid.UUID
     email: EmailStr
@@ -48,7 +40,6 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int
-    refresh_token: str
     user: UserOut
 
 

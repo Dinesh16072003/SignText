@@ -4,8 +4,6 @@ import {
   apiFetch,
   clearTokens,
   getAccessToken,
-  getRefreshToken,
-  hasStoredSession,
   refreshNow,
   registerExpiredHandler,
   storeTokens,
@@ -15,9 +13,7 @@ const REFRESH_PATH = '/api/auth/refresh'
 const PROTECTED_PATH = '/api/translations'
 
 const FIRST_ACCESS = 'access-1'
-const FIRST_REFRESH = 'refresh-1'
 const NEXT_ACCESS = 'access-2'
-const NEXT_REFRESH = 'refresh-2'
 
 function okJson(data) {
   return {
@@ -45,6 +41,7 @@ function installServer(responseFor) {
     calls.push({
       url: String(url),
       headers: init?.headers ?? {},
+      credentials: init?.credentials ?? undefined,
       body: init?.body ? JSON.parse(init.body) : undefined,
     })
     return Promise.resolve(responseFor(String(url), calls.at(-1)))
@@ -63,17 +60,18 @@ afterEach(() => {
 
 describe('apiFetch', () => {
   it('attaches the access token and returns the parsed body', async () => {
-    storeTokens({ accessToken: FIRST_ACCESS, refreshToken: FIRST_REFRESH })
+    storeTokens({ accessToken: FIRST_ACCESS })
     const { calls } = installServer(() => okJson({ translations: [] }))
 
     const data = await apiFetch(PROTECTED_PATH)
 
     expect(data).toEqual({ translations: [] })
     expect(calls[0].headers.Authorization).toBe(`Bearer ${FIRST_ACCESS}`)
+    expect(calls[0].credentials).toBe('include')
   })
 
   it('sends a JSON body with the content type header', async () => {
-    storeTokens({ accessToken: FIRST_ACCESS, refreshToken: FIRST_REFRESH })
+    storeTokens({ accessToken: FIRST_ACCESS })
     const { calls } = installServer(() => okJson({ id: '1' }))
 
     await apiFetch(PROTECTED_PATH, { method: 'POST', body: { text: 'hello' } })
@@ -83,7 +81,7 @@ describe('apiFetch', () => {
   })
 
   it('maps a network failure to an ApiError with status 0', async () => {
-    storeTokens({ accessToken: FIRST_ACCESS, refreshToken: FIRST_REFRESH })
+    storeTokens({ accessToken: FIRST_ACCESS })
     const mock = vi.fn(() => Promise.reject(new TypeError('fetch failed')))
     vi.stubGlobal('fetch', mock)
 
@@ -117,7 +115,7 @@ describe('apiFetch', () => {
 
 describe('refresh and retry', () => {
   it('refreshes once on an expired session and retries with the new token', async () => {
-    storeTokens({ accessToken: FIRST_ACCESS, refreshToken: FIRST_REFRESH })
+    storeTokens({ accessToken: FIRST_ACCESS })
     let protectedCalls = 0
     let refreshCalls = 0
     const { calls } = installServer((url) => {
@@ -125,7 +123,6 @@ describe('refresh and retry', () => {
         refreshCalls += 1
         return okJson({
           access_token: NEXT_ACCESS,
-          refresh_token: NEXT_REFRESH,
           user: { id: 'u1', email: 'a@b.com' },
         })
       }
@@ -138,24 +135,22 @@ describe('refresh and retry', () => {
 
     expect(protectedCalls).toBe(2)
     expect(refreshCalls).toBe(1)
-    expect(calls.filter((c) => c.url.includes(REFRESH_PATH))[0].body).toEqual({
-      refresh_token: FIRST_REFRESH,
-    })
+    const refreshCall = calls.filter((c) => c.url.includes(REFRESH_PATH))[0]
+    expect(refreshCall.body).toBeUndefined()
     expect(calls.filter((c) => c.url.includes(PROTECTED_PATH))[1].headers.Authorization).toBe(
       `Bearer ${NEXT_ACCESS}`
     )
     expect(data).toEqual({ translations: [] })
     expect(getAccessToken()).toBe(NEXT_ACCESS)
-    expect(getRefreshToken()).toBe(NEXT_REFRESH)
   })
 
   it('does not refresh twice when the retried request still returns 401', async () => {
-    storeTokens({ accessToken: FIRST_ACCESS, refreshToken: FIRST_REFRESH })
+    storeTokens({ accessToken: FIRST_ACCESS })
     let refreshCalls = 0
     const server = installServer((url) => {
       if (url.includes(REFRESH_PATH)) {
         refreshCalls += 1
-        return okJson({ access_token: NEXT_ACCESS, refresh_token: NEXT_REFRESH })
+        return okJson({ access_token: NEXT_ACCESS })
       }
       return errJson(401, 'session_expired')
     })
@@ -171,7 +166,7 @@ describe('refresh and retry', () => {
   })
 
   it('performs a single shared refresh when two requests expire at the same time', async () => {
-    storeTokens({ accessToken: FIRST_ACCESS, refreshToken: FIRST_REFRESH })
+    storeTokens({ accessToken: FIRST_ACCESS })
     let refreshCalls = 0
     let protectedCalls = 0
     let releaseRefresh
@@ -183,7 +178,6 @@ describe('refresh and retry', () => {
             resolve(
               okJson({
                 access_token: NEXT_ACCESS,
-                refresh_token: NEXT_REFRESH,
                 user: { id: 'u1', email: 'a@b.com' },
               })
             )
@@ -206,13 +200,13 @@ describe('refresh and retry', () => {
     expect(protectedCalls).toBe(4)
     expect(firstResult).toEqual({ ok: true })
     expect(secondResult).toEqual({ ok: true })
-    expect(getRefreshToken()).toBe(NEXT_REFRESH)
+    expect(getAccessToken()).toBe(NEXT_ACCESS)
   })
 })
 
 describe('refreshNow', () => {
   it('dedupes concurrent callers into one shared request', async () => {
-    storeTokens({ accessToken: FIRST_ACCESS, refreshToken: FIRST_REFRESH })
+    storeTokens({ accessToken: FIRST_ACCESS })
     let refreshCalls = 0
     let releaseRefresh
     installServer((url) => {
@@ -223,7 +217,6 @@ describe('refreshNow', () => {
           resolve(
             okJson({
               access_token: NEXT_ACCESS,
-              refresh_token: NEXT_REFRESH,
               user: { id: 'u1', email: 'a@b.com' },
             })
           )
@@ -238,11 +231,11 @@ describe('refreshNow', () => {
 
     expect(refreshCalls).toBe(1)
     expect(firstResult.access_token).toBe(NEXT_ACCESS)
-    expect(secondResult.refresh_token).toBe(NEXT_REFRESH)
+    expect(secondResult.access_token).toBe(NEXT_ACCESS)
   })
 
   it('signs the user out when the server rejects the refresh token', async () => {
-    storeTokens({ accessToken: FIRST_ACCESS, refreshToken: FIRST_REFRESH })
+    storeTokens({ accessToken: FIRST_ACCESS })
     const expired = vi.fn()
     const unregister = registerExpiredHandler(expired)
     installServer(() => errJson(401, 'session_expired'))
@@ -256,13 +249,11 @@ describe('refreshNow', () => {
     expect(error.detail).toBe('session_expired')
     expect(expired).toHaveBeenCalledTimes(1)
     expect(getAccessToken()).toBeNull()
-    expect(getRefreshToken()).toBeNull()
-    expect(hasStoredSession()).toBe(false)
     unregister()
   })
 
   it('keeps the session when the server cannot be reached during refresh', async () => {
-    storeTokens({ accessToken: FIRST_ACCESS, refreshToken: FIRST_REFRESH })
+    storeTokens({ accessToken: FIRST_ACCESS })
     const expired = vi.fn()
     const unregister = registerExpiredHandler(expired)
     installServer((url) => {
@@ -277,8 +268,7 @@ describe('refreshNow', () => {
 
     expect(error.status).toBe(0)
     expect(expired).not.toHaveBeenCalled()
-    expect(getRefreshToken()).toBe(FIRST_REFRESH)
-    expect(hasStoredSession()).toBe(true)
+    expect(getAccessToken()).toBe(FIRST_ACCESS)
     unregister()
   })
 })

@@ -4,8 +4,6 @@ import {
   SETUP_MESSAGE,
   apiFetch,
   clearTokens,
-  getRefreshToken,
-  hasStoredSession,
   isApiConfigured,
   refreshNow,
   registerExpiredHandler,
@@ -24,7 +22,7 @@ function validateEmail(email) {
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
-  const [isLoadingSession, setIsLoadingSession] = useState(isApiConfigured && hasStoredSession())
+  const [isLoadingSession, setIsLoadingSession] = useState(isApiConfigured())
   const [isWorking, setIsWorking] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -38,7 +36,7 @@ export function AuthProvider({ children }) {
     let active = true
 
     async function restore() {
-      if (!hasStoredSession()) {
+      if (!isApiConfigured()) {
         if (active) setIsLoadingSession(false)
         return
       }
@@ -97,7 +95,7 @@ export function AuthProvider({ children }) {
           display_name: displayName.trim(),
         },
       })
-      storeTokens({ accessToken: data.access_token, refreshToken: data.refresh_token })
+      storeTokens({ accessToken: data.access_token })
       setUser(data.user)
       return { ok: true }
     } catch (signUpError) {
@@ -130,7 +128,7 @@ export function AuthProvider({ children }) {
         auth: false,
         body: { email: email.trim(), password },
       })
-      storeTokens({ accessToken: data.access_token, refreshToken: data.refresh_token })
+      storeTokens({ accessToken: data.access_token })
       setUser(data.user)
       return { ok: true }
     } catch (signInError) {
@@ -145,12 +143,10 @@ export function AuthProvider({ children }) {
     setError('')
     if (!isApiConfigured()) return { ok: true }
 
-    const refreshToken = getRefreshToken()
     try {
       await apiFetch('/api/auth/logout', {
         method: 'POST',
         auth: false,
-        body: refreshToken ? { refresh_token: refreshToken } : undefined,
       })
     } catch {
       // Signing out still completes if the server cannot be reached.

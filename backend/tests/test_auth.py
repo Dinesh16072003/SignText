@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
-from app.config import LOGIN_RATE_LIMIT, REFRESH_RATE_LIMIT
+from app.config import LOGIN_RATE_LIMIT, REFRESH_COOKIE, REFRESH_RATE_LIMIT
 from app.models import AuthSession, User
 from app.security.tokens import create_access_token, hash_refresh_token
 
@@ -25,19 +25,27 @@ def login(client, email=EMAIL, password=PASSWORD):
     )
 
 
-def refresh(client, refresh_token):
-    return client.post(
-        "/api/auth/refresh",
-        json={"refresh_token": refresh_token},
-    )
+def refresh(client):
+    return client.post("/api/auth/refresh")
 
 
-def session_for(db_session_factory, refresh_token):
+def logout(client):
+    return client.post("/api/auth/logout")
+
+
+def refresh_cookie(client):
+    return client.cookies.get(REFRESH_COOKIE)
+
+
+def replace_refresh_cookie(client, value):
+    client.cookies.set(REFRESH_COOKIE, value, domain="testserver.local", path="/")
+
+
+def session_for(client, db_session_factory):
+    user_id = signup(client).json()["user"]["id"]
     with db_session_factory() as db:
         return db.scalar(
-            select(AuthSession).where(
-                AuthSession.token_hash == hash_refresh_token(refresh_token)
-            )
+            select(AuthSession).where(AuthSession.user_id == uuid.UUID(user_id))
         )
 
 
@@ -125,10 +133,15 @@ def test_login_success_returns_short_lived_access_token(client):
     body = response.json()
     assert body["token_type"] == "bearer"
     assert body["access_token"]
-    assert body["refresh_token"]
+    assert "refresh_token" not in body
     assert 0 < body["expires_in"] <= 60 * 30
     assert body["user"]["email"] == EMAIL
     assert body["user"]["user_metadata"]["display_name"] == "Sam"
+
+    set_cookie = response.headers.get("set-cookie", "")
+    assert f"{REFRESH_COOKIE}=" in set_cookie
+    assert "HttpOnly" in set_cookie
+    assert "SameSite=lax" in set_cookie
 
 
 def test_login_wrong_password_and_wrong_email_use_same_message(client):
@@ -179,9 +192,9 @@ def test_me_rejects_expired_token(client):
 
 
 def test_logout_revokes_refresh_session(client, db_session_factory):
-    refresh_token = signup(client).json()["refresh_token"]
+    refresh_token = refresh_cookie(signup(client))
 
-    response = client.post("/api/auth/logout", json={"refresh_token": refresh_token})
+    response = logout(client)
     assert response.status_code == 200
     assert response.json() == {"ok": True}
 
@@ -196,7 +209,7 @@ def test_logout_revokes_refresh_session(client, db_session_factory):
 
 
 def test_logout_always_returns_ok_for_unknown_token(client):
-    response = client.post("/api/auth/logout", json={"refresh_token": "unknown"})
+    response = logout(client)
     assert response.status_code == 200
     assert response.json() == {"ok": True}
 
@@ -224,20 +237,19 @@ def test_successful_login_resets_failure_counter(client):
 
 def test_refresh_is_rate_limited_after_repeated_failures(client):
     for _ in range(REFRESH_RATE_LIMIT):
-        assert refresh(client, "not-a-real-token").status_code == 401
+        assert refresh(client).status_code == 401
 
-    blocked = refresh(client, "not-a-real-token")
+    blocked = refresh(client)
     assert blocked.status_code == 429
     assert blocked.json()["detail"] == "over_request_rate_limit"
 
 
 def test_refresh_rate_limit_blocks_even_a_valid_token_after_failures(client):
-    tokens = signup(client).json()
-
     for _ in range(REFRESH_RATE_LIMIT):
-        refresh(client, "not-a-real-token")
+        refresh(client)
 
-    blocked = refresh(client, tokens["refresh_token"])
+    replace_refresh_cookie(client, "a-valid-looking-refresh-token")
+    blocked = refresh(client)
     assert blocked.status_code == 429
 
 
@@ -250,18 +262,19 @@ def test_responses_never_contain_password_or_hash(client, db_session_factory):
 
 
 def test_refresh_returns_new_access_and_refresh_tokens(client):
-    tokens = signup(client).json()
+    old_token = refresh_cookie(signup(client))
 
-    response = refresh(client, tokens["refresh_token"])
+    response = refresh(client)
     assert response.status_code == 200
 
     body = response.json()
     assert body["access_token"]
-    assert body["refresh_token"]
-    assert body["refresh_token"] != tokens["refresh_token"]
+    assert "refresh_token" not in body
     assert body["token_type"] == "bearer"
     assert 0 < body["expires_in"] <= 60 * 30
     assert body["user"]["email"] == EMAIL
+    assert refresh_cookie(client) is not None
+    assert refresh_cookie(client) != old_token
 
     me = client.get(
         "/api/auth/me", headers={"Authorization": f"Bearer {body['access_token']}"}
@@ -271,76 +284,70 @@ def test_refresh_returns_new_access_and_refresh_tokens(client):
 
 
 def test_refresh_rejects_expired_session(client, db_session_factory):
-    tokens = signup(client).json()
-    session = session_for(db_session_factory, tokens["refresh_token"])
+    session = session_for(client, db_session_factory)
     with db_session_factory() as db:
         stored = db.get(AuthSession, session.id)
         stored.expires_at = datetime.now(timezone.utc) - timedelta(seconds=5)
         db.commit()
 
-    response = refresh(client, tokens["refresh_token"])
+    response = refresh(client)
     assert response.status_code == 401
     assert response.json()["detail"] == "session_expired"
 
 
 def test_refresh_rejects_revoked_session(client, db_session_factory):
-    tokens = signup(client).json()
-    session = session_for(db_session_factory, tokens["refresh_token"])
+    session = session_for(client, db_session_factory)
     with db_session_factory() as db:
         stored = db.get(AuthSession, session.id)
         stored.revoked_at = datetime.now(timezone.utc)
         db.commit()
 
-    response = refresh(client, tokens["refresh_token"])
+    response = refresh(client)
     assert response.status_code == 401
     assert response.json()["detail"] == "session_expired"
 
 
 def test_refresh_rejects_unknown_token(client):
-    response = refresh(client, "not-a-real-refresh-token")
+    response = refresh(client)
     assert response.status_code == 401
     assert response.json()["detail"] == "session_expired"
 
 
 def test_old_refresh_token_fails_after_rotation(client):
-    tokens = signup(client).json()
-    old_token = tokens["refresh_token"]
+    old_token = refresh_cookie(signup(client))
 
-    rotated = refresh(client, old_token)
+    rotated = refresh(client)
     assert rotated.status_code == 200
 
-    reused = refresh(client, old_token)
+    replace_refresh_cookie(client, old_token)
+    reused = refresh(client)
     assert reused.status_code == 401
     assert reused.json()["detail"] == "session_expired"
 
 
 def test_reuse_of_old_token_revokes_whole_family(client):
-    tokens = signup(client).json()
-    old_token = tokens["refresh_token"]
+    old_token = refresh_cookie(signup(client))
 
-    new_token = refresh(client, old_token).json()["refresh_token"]
+    assert refresh(client).status_code == 200
+    new_token = refresh_cookie(client)
 
-    reused = refresh(client, old_token)
+    replace_refresh_cookie(client, old_token)
+    reused = refresh(client)
     assert reused.status_code == 401
     assert reused.json()["detail"] == "session_expired"
 
-    after_theft = refresh(client, new_token)
+    replace_refresh_cookie(client, new_token)
+    after_theft = refresh(client)
     assert after_theft.status_code == 401
     assert after_theft.json()["detail"] == "session_expired"
 
 
 def test_logout_prevents_later_refresh(client):
-    tokens = signup(client).json()
-    refresh_token = tokens["refresh_token"]
+    signup(client)
 
-    assert (
-        client.post(
-            "/api/auth/logout", json={"refresh_token": refresh_token}
-        ).status_code
-        == 200
-    )
+    assert logout(client).status_code == 200
 
-    response = refresh(client, refresh_token)
+    response = refresh(client)
     assert response.status_code == 401
     assert response.json()["detail"] == "session_expired"
 
@@ -349,12 +356,10 @@ def test_password_and_tokens_are_never_logged(client, caplog):
     with caplog.at_level("DEBUG"):
         response = signup(client)
         access_token = response.json()["access_token"]
-        refresh_token = response.json()["refresh_token"]
         login(client)
-        refresh(client, refresh_token)
+        refresh(client)
 
     log_text = caplog.text
     assert PASSWORD not in log_text
     assert access_token not in log_text
-    assert refresh_token not in log_text
     assert "$argon2" not in log_text

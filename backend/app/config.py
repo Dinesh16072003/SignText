@@ -40,6 +40,10 @@ if not SECRET_KEY:
 
 ACCESS_TOKEN_MINUTES = int(os.getenv("SIGNTEXT_ACCESS_TOKEN_MINUTES", "30"))
 REFRESH_TOKEN_DAYS = int(os.getenv("SIGNTEXT_REFRESH_TOKEN_DAYS", "30"))
+REFRESH_COOKIE = "signtext_refresh"
+REFRESH_COOKIE_MAX_AGE = REFRESH_TOKEN_DAYS * 86400
+# "auto" sends Secure only over HTTPS; "1" or "0" forces it either way.
+COOKIE_SECURE = os.getenv("SIGNTEXT_COOKIE_SECURE", "auto").strip().lower()
 PASSWORD_MIN_LENGTH = 8
 PASSWORD_MAX_LENGTH = int(os.getenv("SIGNTEXT_PASSWORD_MAX_LENGTH", "128"))
 MAX_BODY_BYTES = int(os.getenv("SIGNTEXT_MAX_BODY_BYTES", "500000"))

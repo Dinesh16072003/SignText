@@ -19,6 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.config import REFRESH_COOKIE
 from app.db import get_db
 from app.main import app
 from app.rate_limit import clear_all_ratelimiters
@@ -141,6 +142,12 @@ def test_migrations_upgrade_legacy_database_and_auth_still_works():
     client = _make_client(engine)
 
     with client:
+        client.cookies.set(REFRESH_COOKIE, legacy_refresh_token, domain="testserver.local", path="/")
+        legacy_refresh_response = client.post("/api/auth/refresh")
+        assert legacy_refresh_response.status_code == 200
+        legacy_rotated_token = client.cookies.get(REFRESH_COOKIE)
+        assert legacy_refresh_response.json()["user"]["email"] == LEGACY_EMAIL
+
         signup_response = client.post(
             "/api/auth/signup",
             json={
@@ -151,20 +158,13 @@ def test_migrations_upgrade_legacy_database_and_auth_still_works():
         )
         assert signup_response.status_code == 201
 
-        legacy_refresh_response = client.post(
-            "/api/auth/refresh",
-            json={"refresh_token": legacy_refresh_token},
-        )
-        assert legacy_refresh_response.status_code == 200
-        legacy_rotated = legacy_refresh_response.json()
-        assert legacy_rotated["user"]["email"] == LEGACY_EMAIL
-
         login_response = client.post(
             "/api/auth/login",
             json={"email": "new@example.com", "password": "super-secret-123"},
         )
         assert login_response.status_code == 200
         logged_in = login_response.json()
+        assert "refresh_token" not in logged_in
 
         me_response = client.get(
             "/api/auth/me",
@@ -173,17 +173,11 @@ def test_migrations_upgrade_legacy_database_and_auth_still_works():
         assert me_response.status_code == 200
         assert me_response.json()["email"] == "new@example.com"
 
-        refresh_response = client.post(
-            "/api/auth/refresh",
-            json={"refresh_token": logged_in["refresh_token"]},
-        )
+        refresh_response = client.post("/api/auth/refresh")
         assert refresh_response.status_code == 200
         assert refresh_response.json()["access_token"] != logged_in["access_token"]
 
-        logout_response = client.post(
-            "/api/auth/logout",
-            json={"refresh_token": logged_in["refresh_token"]},
-        )
+        logout_response = client.post("/api/auth/logout")
         assert logout_response.status_code == 200
         assert logout_response.json() == {"ok": True}
 
@@ -194,7 +188,7 @@ def test_migrations_upgrade_legacy_database_and_auth_still_works():
         ).fetchone()[0]
         new_family = connection.execute(
             text("SELECT family_id FROM sessions WHERE token_hash = :t"),
-            {"t": hash_refresh_token(legacy_rotated["refresh_token"])},
+            {"t": hash_refresh_token(legacy_rotated_token)},
         ).fetchone()[0]
         assert old_family == new_family == legacy_row.id
 

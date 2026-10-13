@@ -1,11 +1,16 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.config import PASSWORD_MIN_LENGTH
+from app.config import (
+    COOKIE_SECURE,
+    PASSWORD_MIN_LENGTH,
+    REFRESH_COOKIE,
+    REFRESH_COOKIE_MAX_AGE,
+)
 from app.db import get_db
 from app.models import AuthSession, User
 from app.rate_limit import (
@@ -14,8 +19,6 @@ from app.rate_limit import (
 )
 from app.schemas.auth import (
     LoginRequest,
-    LogoutRequest,
-    RefreshRequest,
     SignUpRequest,
     SignUpResponse,
     TokenResponse,
@@ -41,6 +44,46 @@ def _client_key(request: Request) -> str:
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _cookie_secure(request: Request) -> bool:
+    if COOKIE_SECURE == "1":
+        return True
+    if COOKIE_SECURE == "0":
+        return False
+    return request.url.scheme == "https"
+
+
+def _set_refresh_cookie(
+    response: Response, request: Request, refresh_token: str
+) -> None:
+    response.set_cookie(
+        key=REFRESH_COOKIE,
+        value=refresh_token,
+        max_age=REFRESH_COOKIE_MAX_AGE,
+        expires=refresh_expires_at(),
+        path="/",
+        secure=_cookie_secure(request),
+        httponly=True,
+        samesite="lax",
+    )
+
+
+def _clear_refresh_cookie(response: Response, request: Request) -> None:
+    response.delete_cookie(key=REFRESH_COOKIE, path="/")
+
+
+def _cleared_cookie_header(request: Request) -> dict[str, str]:
+    secure = "; Secure" if _cookie_secure(request) else ""
+    return {
+        "set-cookie": (
+            f"{REFRESH_COOKIE}=; Path=/; HttpOnly; Max-Age=0; SameSite=Lax{secure}"
+        )
+    }
+
+
+def _read_refresh_cookie(request: Request) -> str | None:
+    return request.cookies.get(REFRESH_COOKIE)
 
 
 def _ensure_utc(value: datetime) -> datetime:
@@ -95,7 +138,12 @@ def _issue_tokens(db: Session, user: User, request: Request) -> tuple[str, str, 
 
 
 @router.post("/signup", response_model=SignUpResponse, status_code=status.HTTP_201_CREATED)
-def signup(payload: SignUpRequest, request: Request, db: Session = Depends(get_db)):
+def signup(
+    payload: SignUpRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
     password = payload.password.get_secret_value()
     if len(password) < PASSWORD_MIN_LENGTH:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "weak_password")
@@ -118,6 +166,7 @@ def signup(payload: SignUpRequest, request: Request, db: Session = Depends(get_d
         raise HTTPException(status.HTTP_409_CONFLICT, "user_already_exists")
 
     access_token, refresh_token, expires_in = _issue_tokens(db, user, request)
+    _set_refresh_cookie(response, request, refresh_token)
     db.refresh(user)
 
     return SignUpResponse(
@@ -125,13 +174,17 @@ def signup(payload: SignUpRequest, request: Request, db: Session = Depends(get_d
         access_token=access_token,
         token_type=TOKEN_TYPE,
         expires_in=expires_in,
-        refresh_token=refresh_token,
         user=UserOut.from_user(user),
     )
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
+def login(
+    payload: LoginRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
     client = _client_key(request)
     if login_rate_limiter.is_blocked(client):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "over_request_rate_limit")
@@ -151,23 +204,30 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
 
     login_rate_limiter.reset(client)
     access_token, refresh_token, expires_in = _issue_tokens(db, user, request)
+    _set_refresh_cookie(response, request, refresh_token)
 
     return TokenResponse(
         access_token=access_token,
         token_type=TOKEN_TYPE,
         expires_in=expires_in,
-        refresh_token=refresh_token,
         user=UserOut.from_user(user),
     )
 
 
 @router.post("/refresh", response_model=TokenResponse)
-def refresh(payload: RefreshRequest, request: Request, db: Session = Depends(get_db)):
+def refresh(
+    request: Request, response: Response, db: Session = Depends(get_db)
+):
     client = _client_key(request)
     if refresh_rate_limiter.is_blocked(client):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "over_request_rate_limit")
 
-    session = _find_session(db, payload.refresh_token)
+    refresh_token = _read_refresh_cookie(request)
+    if not refresh_token:
+        refresh_rate_limiter.register_failure(client)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, SESSION_ERROR)
+
+    session = _find_session(db, refresh_token)
 
     if session is None:
         refresh_rate_limiter.register_failure(client)
@@ -177,11 +237,19 @@ def refresh(payload: RefreshRequest, request: Request, db: Session = Depends(get
         refresh_rate_limiter.register_failure(client)
         _revoke_family(db, session.family_id)
         db.commit()
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, SESSION_ERROR)
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            SESSION_ERROR,
+            headers=_cleared_cookie_header(request),
+        )
 
     if _session_is_expired(session):
         refresh_rate_limiter.register_failure(client)
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, SESSION_ERROR)
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            SESSION_ERROR,
+            headers=_cleared_cookie_header(request),
+        )
 
     user = db.get(User, session.user_id)
     if user is None or not user.is_active:
@@ -203,20 +271,24 @@ def refresh(payload: RefreshRequest, request: Request, db: Session = Depends(get
         )
     )
     db.commit()
+    _set_refresh_cookie(response, request, new_refresh_token)
+    refresh_rate_limiter.reset(client)
 
     return TokenResponse(
         access_token=access_token,
         token_type=TOKEN_TYPE,
         expires_in=expires_in,
-        refresh_token=new_refresh_token,
         user=UserOut.from_user(user),
     )
 
 
 @router.post("/logout")
-def logout(payload: LogoutRequest | None = None, db: Session = Depends(get_db)):
-    if payload and payload.refresh_token:
-        session = _find_session(db, payload.refresh_token)
+def logout(
+    request: Request, response: Response, db: Session = Depends(get_db)
+):
+    refresh_token = _read_refresh_cookie(request)
+    if refresh_token:
+        session = _find_session(db, refresh_token)
         if (
             session is not None
             and session.revoked_at is None
@@ -224,7 +296,7 @@ def logout(payload: LogoutRequest | None = None, db: Session = Depends(get_db)):
         ):
             session.revoked_at = _utcnow()
             db.commit()
-
+    _clear_refresh_cookie(response, request)
     return {"ok": True}
 
 
