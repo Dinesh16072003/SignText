@@ -13,6 +13,20 @@
       content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: data:; font-src 'self' data:; connect-src 'self' blob: data: http://localhost:8000; worker-src 'self' blob:; child-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
     />
     <title>Signtext - Translate sign language to text</title>
+    <script>
+      // Sets the theme before first paint so the page never flashes the
+      // wrong one. Inline because it runs in the head; allowed by the CSP.
+      (function () {
+        var theme = 'light'
+        try {
+          var saved = localStorage.getItem('signtext-theme')
+          if (saved === 'dark' || (saved !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            theme = 'dark'
+          }
+        } catch (error) {}
+        document.documentElement.setAttribute('data-theme', theme)
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

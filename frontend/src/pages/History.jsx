@@ -1,13 +1,22 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { useAuth } from '../context/auth-context'
+import { usePageTitle } from '../hooks/usePageTitle'
+import { useToast } from '../context/toast-context'
 import SetupNotice from '../components/SetupNotice'
-import StatusLine from '../components/StatusLine'
+import Card from '../components/ui/Card'
+import Button from '../components/ui/Button'
+import Badge from '../components/ui/Badge'
+import Alert from '../components/ui/Alert'
 import { deleteTranslation, listTranslations } from '../services/translations'
 
 const SOURCE_LABELS = {
   live: 'Live camera',
   upload: 'Uploaded video',
+}
+
+const SOURCE_ICONS = {
+  live: 'camera',
+  upload: 'upload',
 }
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -18,7 +27,18 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
 const INITIAL_STATE = { status: 'loading', translations: [], error: '' }
 
 function HistoryRow({ translation, onDelete, isDeleting }) {
+  const { push } = useToast()
+  const [confirming, setConfirming] = useState(false)
   const [deleteError, setDeleteError] = useState('')
+
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(translation.text)
+      push({ tone: 'success', message: 'Copied to clipboard' })
+    } catch {
+      push({ tone: 'error', message: 'Could not copy. Select the text manually.' })
+    }
+  }, [translation.text, push])
 
   async function handleDelete() {
     setDeleteError('')
@@ -26,39 +46,80 @@ function HistoryRow({ translation, onDelete, isDeleting }) {
     if (!result.ok) setDeleteError(result.message)
   }
 
+  // Two steps so a mis-tap never removes a saved translation.
+  function handleDeleteClicked() {
+    if (!confirming) {
+      setConfirming(true)
+      return
+    }
+    handleDelete()
+  }
+
   return (
-    <li className="history-row">
-      <div className="history-row-main">
+    <li className="history-card">
+      <div className="history-card-main">
         <p className="history-text">{translation.text}</p>
         <p className="history-meta">
-          <span className="history-source">
+          <Badge tone="accent" icon={SOURCE_ICONS[translation.source] ?? 'text'}>
             {SOURCE_LABELS[translation.source] ?? 'Unknown source'}
-          </span>
-          <span aria-hidden="true"> · </span>
+          </Badge>
           <time dateTime={translation.created_at}>
             {dateFormatter.format(new Date(translation.created_at))}
           </time>
         </p>
         {deleteError && (
-          <p className="form-error" role="alert">
+          <Alert tone="error" title="Could not delete">
             {deleteError}
+          </Alert>
+        )}
+        {confirming && (
+          <p className="confirm-row">
+            Delete this translation?
+            <Button
+              type="button"
+              variant="danger"
+              size="small"
+              onClick={handleDelete}
+              disabled={isDeleting}
+            >
+              {isDeleting ? 'Deleting\u2026' : 'Delete'}
+            </Button>
+            <Button type="button" variant="quiet" size="small" onClick={() => setConfirming(false)} disabled={isDeleting}>
+              Cancel
+            </Button>
           </p>
         )}
       </div>
 
-      <button
-        type="button"
-        className="btn btn-secondary btn-delete"
-        onClick={handleDelete}
-        disabled={isDeleting}
-      >
-        {isDeleting ? 'Deleting...' : 'Delete'}
-      </button>
+      <div className="history-actions">
+        <Button
+          type="button"
+          variant="secondary"
+          size="small"
+          icon="copy"
+          onClick={handleCopy}
+          aria-label={`Copy translation: ${translation.text.slice(0, 40)}`}
+        >
+          Copy
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          size="small"
+          icon="trash"
+          onClick={handleDeleteClicked}
+          disabled={isDeleting}
+          aria-label={`Delete translation: ${translation.text.slice(0, 40)}`}
+        >
+          {isDeleting ? 'Deleting\u2026' : 'Delete'}
+        </Button>
+      </div>
     </li>
   )
 }
 
 export default function History() {
+  usePageTitle('History')
   const { user, isConfigured, setupMessage } = useAuth()
   const [state, setState] = useState(INITIAL_STATE)
   const [isDeletingId, setIsDeletingId] = useState('')
@@ -117,30 +178,38 @@ export default function History() {
 
       {!isConfigured && <SetupNotice message={setupMessage} />}
 
-      <section className="pane history-pane" aria-labelledby="history-heading">
-        <div className="pane-header">
-          <h2 className="pane-title" id="history-heading">
-            Saved translations
-          </h2>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={handleReload}
-            disabled={isLoading}
-          >
-            {isLoading ? 'Loading...' : 'Refresh'}
-          </button>
-        </div>
-
-        {isLoading && <p className="history-placeholder">Loading your saved translations...</p>}
+      <Card
+        title="Saved translations"
+        id="history-heading"
+        actions={
+          <Button variant="secondary" icon="refresh" onClick={handleReload} disabled={isLoading}>
+            {isLoading ? 'Loading\u2026' : 'Refresh'}
+          </Button>
+        }
+      >
+        {isLoading && (
+          <div className="history-list" aria-hidden="true">
+            <span className="skeleton" style={{ height: '120px' }} />
+            <span className="skeleton" style={{ height: '84px' }} />
+            <span className="skeleton" style={{ height: '84px' }} />
+          </div>
+        )}
+        {isLoading && (
+          <p className="status-line is-loading" role="status" aria-live="polite">
+            <span className="spinner" aria-hidden="true" />
+            <span>Loading your saved translations...</span>
+          </p>
+        )}
 
         {state.status === 'error' && (
           <>
-            <StatusLine tone="error">{state.error}</StatusLine>
+            <Alert tone="error" title="Could not load your history">
+              {state.error}
+            </Alert>
             <div className="pane-actions">
-              <button type="button" className="btn btn-secondary" onClick={handleReload}>
+              <Button variant="secondary" icon="refresh" onClick={handleReload}>
                 Try again
-              </button>
+              </Button>
             </div>
           </>
         )}
@@ -151,9 +220,9 @@ export default function History() {
             <p className="text-empty-text">
               Save a translation from the Translate page and it will appear here.
             </p>
-            <Link to="/" className="btn btn-primary">
+            <Button to="/" variant="primary">
               Go to Translate
-            </Link>
+            </Button>
           </div>
         )}
 
@@ -169,7 +238,7 @@ export default function History() {
             ))}
           </ul>
         )}
-      </section>
+      </Card>
     </main>
   )
 }

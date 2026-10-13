@@ -3,6 +3,7 @@ import { useHandTracker } from '../hooks/useHandTracker'
 import { describeCameraError, useCamera } from '../hooks/useCamera'
 import { useFrameProcessor } from '../hooks/useFrameProcessor'
 import { useSignModel } from '../hooks/useSignModel'
+import { usePageTitle } from '../hooks/usePageTitle'
 import { FEATURE_LENGTH } from '../services/handFeatures'
 import { applyCommit, createSignSmoother } from '../services/signSmoother'
 import VideoPane from '../components/VideoPane'
@@ -24,6 +25,8 @@ const MODEL_TONE = {
 }
 
 function Translate() {
+  usePageTitle('Translate')
+
   const [source, setSource] = useState(null)
   const [uploadName, setUploadName] = useState('')
   const [uploadError, setUploadError] = useState('')
@@ -61,7 +64,10 @@ function Translate() {
     message: modelMessage,
     isReady: isModelReady,
     predict,
+    retry: retryModel,
   } = useSignModel()
+
+  const handleRetryModel = useCallback(() => retryModel(), [retryModel])
 
   const isCameraSource = source === 'camera'
   const isUploadSource = source === 'upload'
@@ -129,7 +135,6 @@ function Translate() {
     if (import.meta.env.DEV) setDebugState(smootherRef.current.getDebugState())
   }, [])
 
-
   const releaseUpload = useCallback(() => {
     if (uploadUrlRef.current) {
       URL.revokeObjectURL(uploadUrlRef.current)
@@ -180,17 +185,17 @@ function Translate() {
     fileInputRef.current?.click()
   }, [])
 
-  const handleFileChange = useCallback(
-    (event) => {
-      const file = event.target.files?.[0]
-      if (!file) return
+  // Shared by the picker and drag-and-drop; returns whether the file is going
+  // to play. Nothing about recognition changes here, only which video feeds in.
+  const processFile = useCallback(
+    (file) => {
+      if (!file) return false
 
       const looksLikeVideo = file.type.startsWith('video/') || VIDEO_FILE_PATTERN.test(file.name)
 
       if (!looksLikeVideo) {
         setUploadError(UNSUPPORTED_FILE_MESSAGE)
-        event.target.value = ''
-        return
+        return false
       }
 
       setUploadError('')
@@ -212,8 +217,18 @@ function Translate() {
       uploadUrlRef.current = url
       setUploadName(file.name)
       setSource('upload')
+      return true
     },
     [stopCamera, clearCameraError, releaseUpload]
+  )
+
+  const handleFileChange = useCallback(
+    (event) => {
+      const file = event.target.files?.[0]
+      if (!file) return
+      if (!processFile(file)) event.target.value = ''
+    },
+    [processFile]
   )
 
   const handleRemoveUpload = useCallback(() => {
@@ -267,7 +282,10 @@ function Translate() {
           isUploadSource={isUploadSource}
           isCameraStarting={isCameraStarting}
           uploadName={uploadName}
+          trackerFailed={Boolean(trackerError)}
           statusText={trackerStatus}
+          modelPhase={modelPhase}
+          modelMessage={modelMessage}
           errorText={message}
           featureDebugLine={featureDebugLine}
           signDebugLine={signDebugLine}
@@ -275,6 +293,7 @@ function Translate() {
           onStopCamera={handleStopCamera}
           onUploadClick={handleUploadClick}
           onFileChange={handleFileChange}
+          onFileDrop={processFile}
           onRemoveUpload={handleRemoveUpload}
         />
 
@@ -284,6 +303,7 @@ function Translate() {
           onTextChange={handleTextChange}
           onClear={handleClearText}
           modelStatus={modelStatus}
+          onRetryModel={handleRetryModel}
         />
       </div>
     </main>

@@ -1,28 +1,53 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/auth-context'
+import { usePageTitle } from '../hooks/usePageTitle'
 import SetupNotice from '../components/SetupNotice'
-import TextField from '../components/TextField'
+import Card from '../components/ui/Card'
+import Button from '../components/ui/Button'
+import Alert from '../components/ui/Alert'
+import TextField, { PasswordField } from '../components/TextField'
+
+function validateEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+}
+
+const MINIMUM_PASSWORD_LENGTH = 8
 
 export default function SignUp() {
+  usePageTitle('Create account')
   const { signUp, error, notice, isWorking, isConfigured, setupMessage, isLoadingSession, user, clearMessages } =
     useAuth()
   const [displayName, setDisplayName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [fieldErrors, setFieldErrors] = useState({ displayName: '', email: '', password: '' })
   const navigate = useNavigate()
 
   useEffect(() => {
     if (!isLoadingSession && user) navigate('/history', { replace: true })
   }, [isLoadingSession, user, navigate])
 
-  async function handleSubmit(event) {
+  // The payload sent to the backend is exactly what it already expected.
+  function handleSubmit(event) {
     event.preventDefault()
-    const result = await signUp({ email, password, displayName })
 
-    if (result.ok && !result.needsConfirmation) {
-      navigate('/history', { replace: true })
+    const nextErrors = {
+      displayName: displayName.trim().length > 50 ? 'Keep the name under 50 characters.' : '',
+      email: email.trim() && validateEmail(email) ? '' : 'Enter a valid email address.',
+      password:
+        password.length >= MINIMUM_PASSWORD_LENGTH
+          ? ''
+          : `Choose a password with at least ${MINIMUM_PASSWORD_LENGTH} characters.`,
     }
+    setFieldErrors(nextErrors)
+    if (nextErrors.displayName || nextErrors.email || nextErrors.password) return
+
+    signUp({ email, password, displayName }).then((result) => {
+      if (result.ok && !result.needsConfirmation) {
+        navigate('/history', { replace: true })
+      }
+    })
   }
 
   return (
@@ -36,63 +61,70 @@ export default function SignUp() {
 
       {!isConfigured && <SetupNotice message={setupMessage} />}
 
-      <section className="pane auth-pane" aria-labelledby="signup-heading">
-        <h2 className="pane-title" id="signup-heading">
-          Your account
-        </h2>
+      <div className="auth-center">
+        <Card title="Your account" id="signup-heading">
+          <form className="auth-form" onSubmit={handleSubmit} noValidate>
+            <TextField
+              label="Your name"
+              value={displayName}
+              onChange={(value) => {
+                setDisplayName(value)
+                setFieldErrors((current) => ({ ...current, displayName: '' }))
+              }}
+              autoComplete="name"
+              hint="This is the name shown next to Sign out."
+              required={false}
+              error={fieldErrors.displayName}
+            />
+            <TextField
+              label="Email address"
+              type="email"
+              value={email}
+              onChange={(value) => {
+                setEmail(value)
+                setFieldErrors((current) => ({ ...current, email: '' }))
+              }}
+              autoComplete="email"
+              error={fieldErrors.email}
+            />
+            <PasswordField
+              label="Password"
+              value={password}
+              onChange={(value) => {
+                setPassword(value)
+                setFieldErrors((current) => ({ ...current, password: '' }))
+              }}
+              autoComplete="new-password"
+              hint={`Use at least ${MINIMUM_PASSWORD_LENGTH} characters.`}
+              error={fieldErrors.password}
+            />
 
-        <form className="auth-form" onSubmit={handleSubmit} noValidate>
-          <TextField
-            label="Your name"
-            value={displayName}
-            onChange={setDisplayName}
-            autoComplete="name"
-            hint="This is the name shown next to Sign out."
-            required={false}
-          />
-          <TextField
-            label="Email address"
-            type="email"
-            value={email}
-            onChange={setEmail}
-            autoComplete="email"
-          />
-          <TextField
-            label="Password"
-            type="password"
-            value={password}
-            onChange={setPassword}
-            autoComplete="new-password"
-            hint="Use at least 8 characters."
-          />
+            {error && (
+              <Alert tone="error" title="Could not create your account">
+                {error}
+              </Alert>
+            )}
+            {notice && <Alert tone="info">{notice}</Alert>}
 
-          {error && (
-            <p className="form-error" role="alert">
-              {error}
-            </p>
-          )}
-          {notice && (
-            <p className="form-notice" role="status">
-              {notice}
-            </p>
-          )}
+            <Button
+              type="submit"
+              variant="primary"
+              className="btn-block"
+              disabled={isWorking || !isConfigured}
+              loading={isWorking}
+            >
+              {isWorking ? 'Creating your account\u2026' : 'Create account'}
+            </Button>
+          </form>
 
-          <button
-            type="submit"
-            className="btn btn-primary btn-block"
-            disabled={isWorking || !isConfigured}
-          >
-            {isWorking ? 'Creating your account...' : 'Create account'}
-          </button>
-        </form>
-
-        <p className="auth-switch">
-          Already have an account?{' '}
-          <Link to="/signin" onClick={clearMessages}>
-            Sign in
-          </Link>
-        </p>
-      </section>
+          <p className="auth-switch">
+            Already have an account?{' '}
+            <Link to="/signin" onClick={clearMessages}>
+              Sign in
+            </Link>
+          </p>
+        </Card>
+      </div>
     </main>
   )
 }

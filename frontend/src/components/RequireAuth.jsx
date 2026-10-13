@@ -4,8 +4,8 @@ import SetupNotice from './SetupNotice'
 
 /**
  * Wraps pages that need a signed-in person. While the session is still being
- * checked nothing is shown, so a signed-in person never sees the sign-in page
- * flash on a reload.
+ * checked a skeleton is shown, so a signed-in person never sees the sign-in
+ * page flash on a reload.
  */
 export default function RequireAuth({ children }) {
   const { user, isLoadingSession, isConfigured, setupMessage } = useAuth()
@@ -14,7 +14,18 @@ export default function RequireAuth({ children }) {
   if (isLoadingSession) {
     return (
       <main className="page">
-        <p className="history-placeholder">Checking your account...</p>
+        <header className="page-header">
+          <h1 className="page-title" aria-hidden="true">
+            <span className="skeleton" style={{ width: '220px', height: '36px', display: 'inline-block' }} />
+          </h1>
+          <p className="page-subtitle" aria-hidden="true">
+            <span className="skeleton" style={{ width: '340px', height: '16px', display: 'inline-block' }} />
+          </p>
+        </header>
+        <p className="status-line is-loading" role="status" aria-live="polite">
+          <span className="spinner" aria-hidden="true" />
+          <span>Checking your account...</span>
+        </p>
       </main>
     )
   }
