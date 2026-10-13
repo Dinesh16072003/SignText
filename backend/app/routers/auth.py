@@ -8,12 +8,15 @@ from sqlalchemy.orm import Session
 from app.config import PASSWORD_MIN_LENGTH
 from app.db import get_db
 from app.models import AuthSession, User
+from app.rate_limit import login_rate_limiter
 from app.schemas.auth import (
+    LoginRequest,
     SignUpRequest,
     SignUpResponse,
+    TokenResponse,
     UserOut,
 )
-from app.security.passwords import hash_password
+from app.security.passwords import DUMMY_HASH, hash_password, verify_password
 from app.security.tokens import (
     create_access_token,
     generate_refresh_token,
@@ -24,6 +27,10 @@ from app.security.tokens import (
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 TOKEN_TYPE = "bearer"
+
+
+def _client_key(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
 
 
 def _start_session(db: Session, user: User, request: Request) -> str:
@@ -75,6 +82,37 @@ def signup(payload: SignUpRequest, request: Request, db: Session = Depends(get_d
 
     return SignUpResponse(
         status="signed_in",
+        access_token=access_token,
+        token_type=TOKEN_TYPE,
+        expires_in=expires_in,
+        refresh_token=refresh_token,
+        user=UserOut.from_user(user),
+    )
+
+
+@router.post("/login", response_model=TokenResponse)
+def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    client = _client_key(request)
+    if login_rate_limiter.is_blocked(client):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "over_request_rate_limit")
+
+    email = payload.email.strip().lower()
+    password = payload.password.get_secret_value()
+    user = db.scalar(select(User).where(User.email == email))
+
+    if user is None:
+        verify_password(password, DUMMY_HASH)
+        login_rate_limiter.register_failure(client)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid_credentials")
+
+    if not user.is_active or not verify_password(password, user.password_hash):
+        login_rate_limiter.register_failure(client)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid_credentials")
+
+    login_rate_limiter.reset(client)
+    access_token, refresh_token, expires_in = _issue_tokens(db, user, request)
+
+    return TokenResponse(
         access_token=access_token,
         token_type=TOKEN_TYPE,
         expires_in=expires_in,
