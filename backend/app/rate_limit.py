@@ -2,7 +2,12 @@ import threading
 import time
 from collections import deque
 
-from app.config import LOGIN_RATE_LIMIT, LOGIN_RATE_WINDOW_SECONDS
+from app.config import (
+    LOGIN_RATE_LIMIT,
+    LOGIN_RATE_WINDOW_SECONDS,
+    REFRESH_RATE_LIMIT,
+    REFRESH_RATE_WINDOW_SECONDS,
+)
 
 
 class LoginRateLimiter:
@@ -42,3 +47,11 @@ class LoginRateLimiter:
 
 
 login_rate_limiter = LoginRateLimiter(LOGIN_RATE_LIMIT, LOGIN_RATE_WINDOW_SECONDS)
+refresh_rate_limiter = LoginRateLimiter(
+    REFRESH_RATE_LIMIT, REFRESH_RATE_WINDOW_SECONDS
+)
+
+
+def clear_all_ratelimiters() -> None:
+    login_rate_limiter.clear()
+    refresh_rate_limiter.clear()

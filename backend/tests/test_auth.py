@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
-from app.config import LOGIN_RATE_LIMIT
+from app.config import LOGIN_RATE_LIMIT, REFRESH_RATE_LIMIT
 from app.models import AuthSession, User
 from app.security.tokens import create_access_token, hash_refresh_token
 
@@ -220,6 +220,25 @@ def test_successful_login_resets_failure_counter(client):
 
     assert login(client).status_code == 200
     assert login(client, password="wrong-password").status_code == 401
+
+
+def test_refresh_is_rate_limited_after_repeated_failures(client):
+    for _ in range(REFRESH_RATE_LIMIT):
+        assert refresh(client, "not-a-real-token").status_code == 401
+
+    blocked = refresh(client, "not-a-real-token")
+    assert blocked.status_code == 429
+    assert blocked.json()["detail"] == "over_request_rate_limit"
+
+
+def test_refresh_rate_limit_blocks_even_a_valid_token_after_failures(client):
+    tokens = signup(client).json()
+
+    for _ in range(REFRESH_RATE_LIMIT):
+        refresh(client, "not-a-real-token")
+
+    blocked = refresh(client, tokens["refresh_token"])
+    assert blocked.status_code == 429
 
 
 def test_responses_never_contain_password_or_hash(client, db_session_factory):

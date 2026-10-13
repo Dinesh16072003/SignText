@@ -8,7 +8,10 @@ from sqlalchemy.orm import Session
 from app.config import PASSWORD_MIN_LENGTH
 from app.db import get_db
 from app.models import AuthSession, User
-from app.rate_limit import login_rate_limiter
+from app.rate_limit import (
+    login_rate_limiter,
+    refresh_rate_limiter,
+)
 from app.schemas.auth import (
     LoginRequest,
     LogoutRequest,
@@ -160,21 +163,29 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
 
 @router.post("/refresh", response_model=TokenResponse)
 def refresh(payload: RefreshRequest, request: Request, db: Session = Depends(get_db)):
+    client = _client_key(request)
+    if refresh_rate_limiter.is_blocked(client):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "over_request_rate_limit")
+
     session = _find_session(db, payload.refresh_token)
 
     if session is None:
+        refresh_rate_limiter.register_failure(client)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, SESSION_ERROR)
 
     if session.revoked_at is not None:
+        refresh_rate_limiter.register_failure(client)
         _revoke_family(db, session.family_id)
         db.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, SESSION_ERROR)
 
     if _session_is_expired(session):
+        refresh_rate_limiter.register_failure(client)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, SESSION_ERROR)
 
     user = db.get(User, session.user_id)
     if user is None or not user.is_active:
+        refresh_rate_limiter.register_failure(client)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, SESSION_ERROR)
 
     access_token, expires_in = create_access_token(user.id)

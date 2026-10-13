@@ -21,7 +21,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import get_db
 from app.main import app
-from app.rate_limit import login_rate_limiter
+from app.rate_limit import clear_all_ratelimiters
 from app.security.passwords import hash_password
 from app.security.tokens import generate_refresh_token, hash_refresh_token
 from migrations.runner import run_migrations
@@ -68,7 +68,7 @@ def _make_client(engine):
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
-    login_rate_limiter.clear()
+    clear_all_ratelimiters()
     return TestClient(app)
 
 
@@ -199,5 +199,5 @@ def test_migrations_upgrade_legacy_database_and_auth_still_works():
         assert old_family == new_family == legacy_row.id
 
     app.dependency_overrides.clear()
-    login_rate_limiter.clear()
+    clear_all_ratelimiters()
     engine.dispose()

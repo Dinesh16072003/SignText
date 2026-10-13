@@ -4,6 +4,8 @@ os.environ.setdefault("SIGNTEXT_SECRET_KEY", "test-secret-key-not-for-production
 os.environ.setdefault("SIGNTEXT_ACCESS_TOKEN_MINUTES", "30")
 os.environ.setdefault("SIGNTEXT_LOGIN_RATE_LIMIT", "5")
 os.environ.setdefault("SIGNTEXT_LOGIN_RATE_WINDOW_SECONDS", "60")
+os.environ.setdefault("SIGNTEXT_REFRESH_RATE_LIMIT", "5")
+os.environ.setdefault("SIGNTEXT_REFRESH_RATE_WINDOW_SECONDS", "60")
 os.environ.setdefault("SIGNTEXT_MAX_BODY_BYTES", "20000")
 os.environ.setdefault("SIGNTEXT_RUN_MIGRATIONS", "0")
 
@@ -16,7 +18,7 @@ from sqlalchemy.pool import StaticPool
 from app.db import get_db
 from app.main import app
 from app.models import Base
-from app.rate_limit import login_rate_limiter
+from app.rate_limit import clear_all_ratelimiters
 
 
 @pytest.fixture()
@@ -47,10 +49,10 @@ def client(db_engine, db_session_factory):
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
-    login_rate_limiter.clear()
+    clear_all_ratelimiters()
 
     with TestClient(app) as test_client:
         yield test_client
 
     app.dependency_overrides.clear()
-    login_rate_limiter.clear()
+    clear_all_ratelimiters()
