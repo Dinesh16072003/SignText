@@ -106,6 +106,8 @@ def _session_is_expired(session: AuthSession) -> bool:
 
 
 def _revoke_family(db: Session, family_id) -> None:
+    if family_id is None:
+        return
     now = _utcnow()
     sessions = db.scalars(
         select(AuthSession).where(

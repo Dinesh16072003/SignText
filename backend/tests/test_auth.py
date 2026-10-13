@@ -395,6 +395,66 @@ def test_logout_prevents_later_refresh(client):
     assert response.json()["detail"] == "session_expired"
 
 
+def test_revoke_family_ignores_null_family(db_session_factory, client):
+    from app.routers.auth import _revoke_family
+
+    user_id = uuid.UUID(signup(client).json()["user"]["id"])
+    expires = datetime.now(timezone.utc) + timedelta(days=30)
+
+    with db_session_factory() as db:
+        db.add_all(
+            [
+                AuthSession(
+                    user_id=user_id, token_hash="null-family-1", expires_at=expires, family_id=None
+                ),
+                AuthSession(
+                    user_id=user_id, token_hash="null-family-2", expires_at=expires, family_id=None
+                ),
+            ]
+        )
+        db.commit()
+        _revoke_family(db, None)
+        db.commit()
+        revoked = db.scalars(
+            select(AuthSession).where(AuthSession.revoked_at.is_not(None))
+        ).all()
+    assert revoked == []
+
+
+def test_revoke_family_revokes_members_with_a_shared_id(db_session_factory, client):
+    from app.routers.auth import _revoke_family
+
+    user_id = uuid.UUID(signup(client).json()["user"]["id"])
+    family_id = uuid.uuid4()
+    expires = datetime.now(timezone.utc) + timedelta(days=30)
+
+    with db_session_factory() as db:
+        db.add_all(
+            [
+                AuthSession(
+                    user_id=user_id,
+                    token_hash="family-member-1",
+                    expires_at=expires,
+                    family_id=family_id,
+                ),
+                AuthSession(
+                    user_id=user_id,
+                    token_hash="family-member-2",
+                    expires_at=expires,
+                    family_id=family_id,
+                ),
+            ]
+        )
+        db.commit()
+        _revoke_family(db, family_id)
+        db.commit()
+        revoked = db.scalars(
+            select(AuthSession).where(AuthSession.revoked_at.is_not(None))
+        ).all()
+    assert len(revoked) == 2
+    assert {s.token_hash for s in revoked} == {"family-member-1", "family-member-2"}
+
+
 def test_password_and_tokens_are_never_logged(client, caplog):
     with caplog.at_level("DEBUG"):
         response = signup(client)
