@@ -37,6 +37,12 @@ if not SECRET_KEY:
         "this process, so access tokens will stop working after a restart. Set "
         "SIGNTEXT_SECRET_KEY in backend/.env for real use."
     )
+elif len(SECRET_KEY) < 32:
+    raise ValueError(
+        "SIGNTEXT_SECRET_KEY is too short to be safe. Use at least 32 "
+        "characters and choose it with a random generator (e.g. "
+        "'python -c \"import secrets; print(secrets.token_urlsafe(48))\"')."
+    )
 
 ACCESS_TOKEN_MINUTES = int(os.getenv("SIGNTEXT_ACCESS_TOKEN_MINUTES", "30"))
 REFRESH_TOKEN_DAYS = int(os.getenv("SIGNTEXT_REFRESH_TOKEN_DAYS", "30"))
