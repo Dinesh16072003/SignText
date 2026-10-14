@@ -84,6 +84,14 @@
   --text-body: var(--font-size-md);
   --text-caption: var(--font-size-xs);
 
+  /* User-facing translation sizes, chosen from the text pane control. Each
+     step is clearly larger than the last, and the whole scale is in rem so it
+     still follows browser zoom. */
+  --text-size-sm: 0.9375rem;
+  --text-size-md: 1.125rem;
+  --text-size-lg: 1.5rem;
+  --text-size-xl: 2rem;
+
   --line-height-tight: 1.25;
   --line-height-body: 1.6;
   --font-weight-regular: 400;
@@ -1251,6 +1259,7 @@ a:hover {
 /* Text size control */
 .text-size-control {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-1);
 }
@@ -1288,25 +1297,22 @@ a:hover {
   overflow-wrap: anywhere;
 }
 
-/* User-facing translation text sizes */
-.text-size-sm .text-output,
+/* User-facing translation text sizes. The size class sits on the textarea
+   itself, next to .text-input, so each rule wins over the base font-size. */
 .text-size-sm.text-input {
-  font-size: var(--font-size-md);
+  font-size: var(--text-size-sm);
 }
 
-.text-size-md .text-output,
 .text-size-md.text-input {
-  font-size: var(--font-size-lg);
+  font-size: var(--text-size-md);
 }
 
-.text-size-lg .text-output,
 .text-size-lg.text-input {
-  font-size: var(--font-size-xl);
+  font-size: var(--text-size-lg);
 }
 
-.text-size-xl .text-output,
 .text-size-xl.text-input {
-  font-size: var(--font-size-2xl);
+  font-size: var(--text-size-xl);
 }
 
 .text-empty {

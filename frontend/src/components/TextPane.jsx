@@ -10,6 +10,9 @@ import StatusLine from './StatusLine'
 
 const IDLE_MESSAGE = 'Copy the text when you are finished, or Clear to start again.'
 
+const TEXT_SIZE_STORAGE_KEY = 'signtext:text-size'
+const DEFAULT_TEXT_SIZE = 'md'
+
 const TEXT_SIZES = [
   { id: 'sm', label: 'Small' },
   { id: 'md', label: 'Medium' },
@@ -17,13 +20,27 @@ const TEXT_SIZES = [
   { id: 'xl', label: 'Extra large' },
 ]
 
+// The chosen size is remembered across reloads. A missing or unrecognised
+// value falls back to the medium default, and storage being unavailable (for
+// example in private mode) never breaks the page.
+function readStoredTextSize() {
+  try {
+    const stored = window.localStorage.getItem(TEXT_SIZE_STORAGE_KEY)
+    if (TEXT_SIZES.some((size) => size.id === stored)) return stored
+  } catch {
+    // Storage can be blocked; the default is the safe answer.
+  }
+  return DEFAULT_TEXT_SIZE
+}
+
 function TextPane({ source, text, onTextChange, onClear, modelStatus, onRetryModel }) {
   const { user } = useAuth()
   const { push } = useToast()
   const [notice, setNotice] = useState({ tone: 'idle', text: '' })
   const [isSaving, setIsSaving] = useState(false)
-  const [textSize, setTextSize] = useState('md')
+  const [textSize, setTextSize] = useState(readStoredTextSize)
   const [announcement, setAnnouncement] = useState('')
+  const [sizeAnnouncement, setSizeAnnouncement] = useState('')
   const lastEditAtRef = useRef(0)
   const announcedLengthRef = useRef(text.length)
 
@@ -76,6 +93,16 @@ function TextPane({ source, text, onTextChange, onClear, modelStatus, onRetryMod
     setNotice({ tone: 'idle', text: 'Text cleared.' })
   }, [onClear])
 
+  const handleTextSizeChange = useCallback((size) => {
+    setTextSize(size.id)
+    setSizeAnnouncement(`Text size: ${size.label}`)
+    try {
+      window.localStorage.setItem(TEXT_SIZE_STORAGE_KEY, size.id)
+    } catch {
+      // Storage can be blocked; the choice still applies for this session.
+    }
+  }, [])
+
   const handleSave = useCallback(async () => {
     setIsSaving(true)
     const result = await saveTranslation({ text, source })
@@ -105,7 +132,7 @@ function TextPane({ source, text, onTextChange, onClear, modelStatus, onRetryMod
                 type="button"
                 className="text-size-button"
                 aria-pressed={textSize === size.id}
-                onClick={() => setTextSize(size.id)}
+                onClick={() => handleTextSizeChange(size)}
               >
                 {size.label}
               </button>
@@ -159,13 +186,13 @@ function TextPane({ source, text, onTextChange, onClear, modelStatus, onRetryMod
           </div>
         </div>
       ) : (
-        <div className={`text-surface text-size-${textSize}`}>
+        <div className="text-surface">
           <label className="visually-hidden" htmlFor="translation-text">
             Translation text
           </label>
           <textarea
             id="translation-text"
-            className="text-input"
+            className={`text-input text-size-${textSize}`}
             value={text}
             onChange={(event) => handleTextChange(event.target.value)}
             placeholder="Recognised text will appear here. You can also type or paste text to save it."
@@ -201,6 +228,9 @@ function TextPane({ source, text, onTextChange, onClear, modelStatus, onRetryMod
 
       <div className="visually-hidden" role="status" aria-live="polite">
         {announcement}
+      </div>
+      <div className="visually-hidden" role="status" aria-live="polite">
+        {sizeAnnouncement}
       </div>
     </section>
   )
